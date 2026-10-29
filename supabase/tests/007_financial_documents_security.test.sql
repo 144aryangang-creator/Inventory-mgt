@@ -319,6 +319,8 @@ select ok(
   'financial document lifecycle mutations create audit events'
 );
 
+reset role;
+
 select results_eq(
   $$select next_number from public.financial_document_sequences
     where organization_id = 'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa'
@@ -329,6 +331,5 @@ select results_eq(
   'failed issue does not consume the valid INV series sequence'
 );
 
-reset role;
 select * from finish();
 rollback;
