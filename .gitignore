@@ -1,0 +1,21 @@
+# Secrets / local environment
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Supabase local state
+supabase/.temp/
+supabase/.branches/
+
+# Node / frontend (future)
+node_modules/
+dist/
+coverage/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
