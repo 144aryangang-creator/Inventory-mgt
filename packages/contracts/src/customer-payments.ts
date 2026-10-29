@@ -65,6 +65,24 @@ export const recordAndAllocateInvoicePaymentSchema = z.object({
 })
 export type RecordAndAllocateInvoicePaymentInput = z.infer<typeof recordAndAllocateInvoicePaymentSchema>
 
+export const reversePaymentAllocationSchema = z.object({
+  organizationId: z.uuid(),
+  allocationId: z.uuid(),
+  amount: positiveDecimalSchema,
+  reason: z.string().trim().min(1, 'Reversal reason is required').max(240),
+  requestKey: z.string().trim().min(1, 'Request key is required').max(128),
+})
+export type ReversePaymentAllocationInput = z.infer<typeof reversePaymentAllocationSchema>
+
+export const reverseCustomerPaymentSchema = z.object({
+  organizationId: z.uuid(),
+  paymentId: z.uuid(),
+  amount: positiveDecimalSchema,
+  reason: z.string().trim().min(1, 'Reversal reason is required').max(240),
+  requestKey: z.string().trim().min(1, 'Request key is required').max(128),
+})
+export type ReverseCustomerPaymentInput = z.infer<typeof reverseCustomerPaymentSchema>
+
 export const listCustomerPaymentsQuerySchema = z.object({
   organizationId: z.uuid(),
   customerPartyId: z.uuid().optional(),
@@ -73,6 +91,11 @@ export const listCustomerPaymentsQuerySchema = z.object({
 })
 
 export const invoicePaymentBalanceQuerySchema = z.object({
+  organizationId: z.uuid(),
+  documentId: z.uuid(),
+})
+
+export const invoicePaymentAllocationsQuerySchema = z.object({
   organizationId: z.uuid(),
   documentId: z.uuid(),
 })
