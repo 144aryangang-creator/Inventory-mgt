@@ -248,4 +248,13 @@
   .profile-badges {
     justify-content: flex-start;
   }
+
+  .party-actions {
+    grid-column: 1;
+    justify-self: start;
+  }
+
+  .party-actions .text-button:first-child {
+    padding-left: 0;
+  }
 }
