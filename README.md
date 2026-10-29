@@ -1,8 +1,8 @@
 # Inventory Management + Invoicing SaaS
 
-Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost infrastructure, preserve a path to production scale, and keep tenant/security rules enforced in the database.
+Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost infrastructure, keep security enforced in the database, and scale progressively without rewriting the core.
 
-> **Resume rule:** Read this README first. Update it after major milestones, important failures/decisions, and before ending substantial work.
+> **Resume rule:** Read this README first. Update it after major milestones, important design/security changes, and before ending substantial work.
 
 ## Current status
 
@@ -13,19 +13,20 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 - RLS / tenant isolation: **implemented + adversarially tested**
 - Inventory ledger: **implemented + tested**
 - API foundation: **implemented + CI green**
-- React web/auth shell: **implemented + CI green**
+- React auth/application shell: **implemented + CI green**
+- Organization onboarding/context: **implemented + CI green**
 - Reproducible npm lockfile: **committed; CI uses `npm ci`**
 - Production deployment: not started
-- Real Supabase/Cloudflare production credentials: not configured or committed
+- Real production credentials: not configured or committed
 
 ## User requirements
 
 - Complete inventory management + invoicing system
-- Customizable per business without maintaining separate code forks
+- Customizable per business without separate code forks
 - Start as close to free as practical
-- Scale progressively based on measurements
-- Production-grade security, backups, testing, observability
-- Research current practices before major technology decisions
+- Clear path to large scale
+- Production-grade security, testing, backups and observability
+- Research current best practices before major decisions
 - Prefer concise pointers/checklists in discussion
 - Keep this README as persistent handoff memory
 
@@ -51,17 +52,18 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 
 1. Every tenant-owned record has an organization relationship.
 2. PostgreSQL RLS is the tenant authorization boundary.
-3. `organization_id` cannot be silently changed to move data between tenants.
-4. Inventory movements are append-only.
-5. Stock corrections use reversing/correcting movements.
-6. Stock posting locks the balance row and is transactional.
-7. Negative inventory is blocked unless explicitly enabled.
-8. Dangerous mutations use idempotency protection.
-9. Money/tax/quantity logic never relies on binary floating-point arithmetic.
-10. Posted financial documents will be immutable.
-11. Critical mutations create append-only audit events.
-12. Secrets and real production customer data never enter Git.
-13. Schema changes are version-controlled migrations.
+3. Client-selected organization state is UX only; it never grants access.
+4. `organization_id` cannot be silently changed between tenants.
+5. Inventory movements are append-only.
+6. Stock corrections use reversing/correcting movements.
+7. Stock posting is transactional and locks the balance row.
+8. Negative inventory is blocked unless explicitly enabled.
+9. Dangerous mutations use idempotency protection.
+10. Money/tax/quantity logic never relies on binary floating point.
+11. Posted financial documents will be immutable.
+12. Critical mutations create append-only audit events.
+13. Secrets and real production customer data never enter Git.
+14. Schema changes are version-controlled migrations.
 
 ## Implemented database
 
@@ -81,7 +83,7 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 - active/suspended memberships
 - RLS on client-facing foundation tables
 - `SECURITY DEFINER` helpers with fixed `search_path`
-- cross-tenant foreign-key protection
+- cross-tenant FK protection
 - tenant reassignment protection
 - direct client ledger writes denied
 - movement/audit update and delete denied
@@ -96,10 +98,10 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
   - writes audit event
 - `post_inventory_movement(...)`
   - owner/admin/staff only
-  - validates item + warehouse + tenant
+  - validates tenant/item/warehouse
   - locks balance
   - prevents oversell
-  - handles retry/idempotency
+  - handles idempotent retry
   - writes ledger + balance + audit atomically
 
 ### Migrations
@@ -113,53 +115,61 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 - `002_tenant_inventory_security.test.sql`
 - `003_integrity_and_roles.test.sql`
 
-Tests cover RLS, cross-tenant access, direct ledger bypass, stock posting, overselling, idempotency, immutability, multi-org row reassignment, viewer permissions and audit visibility.
+Tests cover RLS, cross-tenant access, direct ledger bypass, posting, overselling, idempotency, immutability, tenant reassignment, viewer permissions and audit visibility.
 
 ## Implemented API
 
 `apps/api`
 
 - `GET /health`
-- verified bearer JWT for `/v1/*`
+- verified bearer JWT on `/v1/*`
 - user-scoped Supabase client; normal requests do **not** use service-role credentials
 - `GET /v1/me`
 - `GET /v1/organizations`
+- `POST /v1/organizations`
 - `POST /v1/inventory/movements`
-- request IDs
-- security headers
-- restricted CORS
-- non-leaking error responses
-- DB error mapping for permission, inventory and idempotency conflicts
+- request IDs + secure headers + restricted CORS
+- generic/non-leaking error responses
+- database error mapping for permissions/inventory/idempotency/slug conflicts
 
 ## Implemented shared contracts
 
 `packages/contracts`
 
 - Zod validation
-- inventory movement enum aligned with DB
-- decimal-string quantities/costs
-- max 6 decimal places
-- inbound positive / outbound negative
-- zero rejected
-- UUID and request-key validation
+- inventory movement validation with exact decimal strings
+- organization creation validation
+- organization slug normalization
+- ISO-style country/currency normalization
 
-## Implemented web shell
+## Implemented web
 
 `apps/web`
 
-- React + Vite + TypeScript
-- React Router protected routes
+### Auth/application shell
+
 - Supabase browser session handling
 - email/password sign-in
+- protected routes
 - bearer-token API client
-- dashboard calling RLS-scoped `/v1/organizations`
-- responsive navigation shell
-- placeholders for Inventory / Invoices / Settings
-- CSS design tokens reserved for future organization branding
-- browser-safe `.env.example`
-- web setup/security notes in `apps/web/README.md`
+- responsive app shell
+- browser-safe env template
+- branding-ready CSS design tokens
 
-Current routes:
+### Organization context
+
+- zero-organization onboarding flow
+- secure organization creation through API -> database RPC
+- organization slug suggestion + validation
+- active-organization provider
+- organization switcher for multi-org users
+- accessible-org validation before selection
+- selected organization ID persisted only as non-secret UX state
+- fallback to first accessible organization if saved ID is stale/inaccessible
+
+**Important:** organization selection does not bypass or replace RLS.
+
+### Current routes
 
 - `/login`
 - `/`
@@ -171,9 +181,9 @@ Current routes:
 
 ### Database CI — GREEN
 
-- Supabase local stack
+- local Supabase stack
 - rebuild from migrations
-- `supabase db lint`
+- DB lint
 - pgTAP tests
 - clean shutdown
 
@@ -183,35 +193,33 @@ Current routes:
 - `npm ci`
 - lockfile drift check
 - strict TypeScript
-- contracts tests
-- API boundary tests
-- web helper tests
+- contracts/API/web tests
 - Worker dry-run build
 - React/Vite production build
 
 ### CI hardening
 
 - normal workflows use `contents: read`
-- GitHub Actions are pinned to exact commit SHAs
-- one-time write-enabled lockfile bootstrap workflow was removed after use
+- GitHub Actions pinned to exact commit SHAs
+- temporary write-enabled lockfile workflows removed immediately after use
 - Supabase CLI pinned to `2.122.0`
 
 ## Security reference
 
 See `docs/SECURITY_MODEL.md`.
 
-Production release still requires:
+Production still requires:
 
 - browser E2E tests
-- OWASP ZAP / security review
+- OWASP ZAP/security review
 - dependency vulnerability review
-- load + concurrency tests
+- load + concurrency testing
 - backup + restore drill
 - production secret management
 - MFA for privileged accounts
 - monitoring + alerting
 
-## V1 product scope
+## V1 scope
 
 - Authentication
 - Organizations + memberships
@@ -231,25 +239,25 @@ Production release still requires:
 - Audit log
 - CSV/Excel import/export
 
-Later: quotations, orders, returns, credit/debit notes, serial/batch/expiry, barcode, GST e-invoicing/e-way bill, messaging automation, approvals, POS, accounting/GL, bank reconciliation, advanced analytics, offline/PWA, public API/webhooks.
+Later: quotations/orders, returns, credit/debit notes, serial/batch/expiry, barcode, GST e-invoice/e-way bill, messaging automation, approvals, POS, full accounting/GL, bank reconciliation, analytics, offline/PWA, public API/webhooks.
 
 ## Customization rule
 
 **Do not fork code per customer.**
 
-Configuration should cover:
+Use configuration for:
 
 - custom fields
 - required/optional fields
-- dropdowns and validation
-- branding/design tokens
+- dropdowns + validation
+- branding
 - document templates
 - numbering schemes
-- role permissions
+- permissions
 - enabled modules
 - later workflows/automations
 
-Use relational columns for core/query-critical data; controlled metadata/JSON only for tenant-specific extensions.
+Use relational columns for core/query-critical data; controlled JSON/metadata only for tenant-specific extensions.
 
 ## India / GST direction
 
@@ -289,30 +297,24 @@ Re-verify official regulatory rules immediately before implementing/releasing re
 
 ### Immediate
 
-1. Implement **organization onboarding + active-organization context**.
-2. Add API endpoint for organization creation using existing secure DB RPC.
-3. If user has zero organizations, show onboarding instead of an empty dashboard.
-4. Add organization switcher for users belonging to multiple organizations.
-5. Keep organization ID explicit in UI state, but never rely on client-side tenant filtering for security.
-6. Add tests for onboarding and tenant switching behavior.
+1. Research current official GST/customer-identification requirements relevant to party master data.
+2. Implement **customers + suppliers** schema with tenant RLS and auditability.
+3. Treat party master records as archivable, not destructively deletable once referenced.
+4. Support billing/shipping addresses and nullable GSTIN without overfitting India-only data into the core.
+5. Add shared validation + API endpoints.
+6. Add customer/supplier UI inside active organization context.
+7. Add adversarial cross-tenant tests and application tests.
+8. Keep both CI pipelines green.
 
-### After organization context
+### After parties
 
-7. Implement customers + suppliers schema/RLS/API/UI.
-8. Then design invoices, tax snapshots, numbering and payments.
-9. Add Playwright E2E before production deployment work.
-10. Wire React static assets + API into the intended Cloudflare deployment topology.
+9. Design invoices + invoice-line snapshots + tax engine + numbering + payments.
+10. Add Playwright E2E before production deployment work.
+11. Wire React static assets + API into the intended Cloudflare deployment topology.
 
 ## README update policy
 
-Update after:
-
-- architecture/security decisions
-- major schema/module completion
-- significant test failures and their fix
-- deployment changes
-- before ending substantial work
-- when conversation context becomes large
+Update after architecture/security decisions, major module completion, significant failures/fixes, deployment changes, before stopping substantial work, and when conversation context becomes large.
 
 Always update:
 
