@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(18);
+select plan(22);
 
 select has_table('public', 'parties', 'parties table exists');
 select has_table('public', 'party_roles', 'party roles table exists');
@@ -182,7 +182,6 @@ select throws_ok(
 
 reset role;
 
--- Seed Tenant B through its authenticated owner so isolation can be tested.
 set local role authenticated;
 set local request.jwt.claim.sub = '66666666-6666-4666-8666-666666666666';
 select public.create_party(
