@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(20);
+select plan(22);
 
 select has_table('public', 'organization_billing_profiles', 'organization billing profiles table exists');
 select ok(
@@ -20,14 +20,14 @@ insert into auth.users (id, email) values
 
 insert into public.organizations (id, name, slug) values
   ('aaaa0000-0000-4000-8000-000000000001', 'Billing Tenant A', 'billing-tenant-a'),
-  ('bbbb0000-0000-4000-8000-000000000002', 'Billing Tenant B', 'billing-tenant-b');
+  ('bbbb0000-0000-4000-8000-bbbbbbbbb002', 'Billing Tenant B', 'billing-tenant-b');
 
 insert into public.organization_memberships (organization_id, user_id, role) values
   ('aaaa0000-0000-4000-8000-000000000001', '11110000-0000-4000-8000-000000000001', 'owner'),
   ('aaaa0000-0000-4000-8000-000000000001', '11110000-0000-4000-8000-000000000002', 'admin'),
   ('aaaa0000-0000-4000-8000-000000000001', '11110000-0000-4000-8000-000000000003', 'staff'),
   ('aaaa0000-0000-4000-8000-000000000001', '11110000-0000-4000-8000-000000000004', 'viewer'),
-  ('bbbb0000-0000-4000-8000-000000000002', '11110000-0000-4000-8000-000000000005', 'owner');
+  ('bbbb0000-0000-4000-8000-bbbbbbbbb002', '11110000-0000-4000-8000-000000000005', 'owner');
 
 set local role authenticated;
 set local request.jwt.claim.sub = '11110000-0000-4000-8000-000000000001';
@@ -91,7 +91,7 @@ set local request.jwt.claim.sub = '11110000-0000-4000-8000-000000000001';
 
 select throws_ok(
   $$select public.create_organization_billing_profile(
-      'bbbb0000-0000-4000-8000-000000000002',
+      'bbbb0000-0000-4000-8000-bbbbbbbbb002',
       'CROSS', 'Cross Tenant Seller', '3 Road', 'Indore', 'Madhya Pradesh', '23', '452001'
     )$$,
   '42501',
@@ -216,14 +216,14 @@ select throws_ok(
 
 set local request.jwt.claim.sub = '11110000-0000-4000-8000-000000000005';
 select public.create_organization_billing_profile(
-  'bbbb0000-0000-4000-8000-000000000002',
+  'bbbb0000-0000-4000-8000-bbbbbbbbb002',
   'OTHER', 'Other Legal Seller', '1 Other Road', 'Mumbai', 'Maharashtra', '27', '400001'
 );
 
 set local request.jwt.claim.sub = '11110000-0000-4000-8000-000000000001';
 select results_eq(
   $$select count(*) from public.organization_billing_profiles
-    where organization_id = 'bbbb0000-0000-4000-8000-000000000002'$$,
+    where organization_id = 'bbbb0000-0000-4000-8000-bbbbbbbbb002'$$,
   array[0::bigint],
   'Tenant A cannot read Tenant B seller profiles'
 );
