@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./financial-documents": "./src/financial-documents.ts"
+    "./financial-documents": "./src/financial-documents.ts",
+    "./organization-billing": "./src/organization-billing.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
