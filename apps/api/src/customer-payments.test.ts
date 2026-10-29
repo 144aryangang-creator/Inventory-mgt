@@ -38,4 +38,23 @@ describe('customer payment API boundary', () => {
     })
     expect(response.status).toBe(400)
   })
+
+  it('rejects non-string receipt amounts before database access', async () => {
+    const response = await customerPaymentRoutes.request('/invoice/dddddddd-dddd-4ddd-8ddd-dddddddddddd/receipt', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        customerPartyId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        paymentDate: '2026-10-30',
+        amount: 100,
+        currencyCode: 'INR',
+        method: 'upi',
+        paymentRequestKey: 'payment-receipt-1',
+        allocationRequestKey: 'allocation-receipt-1',
+      }),
+    })
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ error: 'validation_failed' })
+  })
 })
