@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   cancelFinancialDocumentSchema,
   createFinancialDocumentDraftSchema,
+  financialDocumentDetailQuerySchema,
   issueFinancialDocumentSchema,
+  listFinancialDocumentsQuerySchema,
   upsertFinancialDocumentLineSchema,
 } from './financial-documents'
 
@@ -80,5 +82,16 @@ describe('financial document contracts', () => {
 
   it('requires a cancellation reason', () => {
     expect(cancelFinancialDocumentSchema.safeParse({ organizationId, documentId, reason: ' ' }).success).toBe(false)
+  })
+
+  it('bounds invoice list pagination and validates filters', () => {
+    expect(listFinancialDocumentsQuerySchema.safeParse({ organizationId, limit: '101' }).success).toBe(false)
+    expect(listFinancialDocumentsQuerySchema.safeParse({ organizationId, status: 'posted' }).success).toBe(false)
+    expect(listFinancialDocumentsQuerySchema.parse({ organizationId })).toMatchObject({ limit: 50, offset: 0 })
+  })
+
+  it('requires exact UUIDs for financial document detail reads', () => {
+    expect(financialDocumentDetailQuerySchema.safeParse({ organizationId, documentId }).success).toBe(true)
+    expect(financialDocumentDetailQuerySchema.safeParse({ organizationId, documentId: '../invoice' }).success).toBe(false)
   })
 })
