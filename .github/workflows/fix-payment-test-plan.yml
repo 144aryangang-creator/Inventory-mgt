@@ -1,0 +1,39 @@
+name: One-time payment test plan fix
+
+on:
+  push:
+    branches:
+      - foundation/bootstrap
+    paths:
+      - .github/workflows/fix-payment-test-plan.yml
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: foundation/bootstrap
+
+      - name: Correct pgTAP plan and remove workflow
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('supabase/tests/010_customer_payments.test.sql')
+          s = p.read_text()
+          old = 'select plan(20);'
+          if old not in s:
+              raise SystemExit('expected payment pgTAP plan not found')
+          p.write_text(s.replace(old, 'select plan(22);', 1))
+          PY
+          git rm .github/workflows/fix-payment-test-plan.yml
+          git config user.name "Inventory CI"
+          git config user.email "inventory-ci@users.noreply.github.com"
+          git add supabase/tests/010_customer_payments.test.sql
+          git commit -m "fix(test): declare complete payment regression plan"
+          git push origin HEAD:foundation/bootstrap
