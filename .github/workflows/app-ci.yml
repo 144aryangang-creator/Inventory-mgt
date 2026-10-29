@@ -6,6 +6,7 @@ on:
       - 'apps/**'
       - 'packages/**'
       - 'package.json'
+      - 'package-lock.json'
       - '.nvmrc'
       - '.github/workflows/app-ci.yml'
   push:
@@ -16,6 +17,7 @@ on:
       - 'apps/**'
       - 'packages/**'
       - 'package.json'
+      - 'package-lock.json'
       - '.nvmrc'
       - '.github/workflows/app-ci.yml'
 
@@ -34,15 +36,19 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version-file: '.nvmrc'
+          package-manager-cache: false
 
-      - name: Install dependencies and generate lockfile
-        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Verify lockfile remains unchanged
+        run: git diff --exit-code -- package-lock.json
 
       - name: Typecheck
         run: npm run typecheck
@@ -52,11 +58,3 @@ jobs:
 
       - name: Build
         run: npm run build
-
-      - name: Save generated lockfile
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-package-lock
-          path: package-lock.json
-          if-no-files-found: error
-          retention-days: 1
