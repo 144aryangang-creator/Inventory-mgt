@@ -37,7 +37,7 @@ inventoryReferenceRoutes.get('/items', async (c) => {
   let query = c
     .get('supabase')
     .from('items')
-    .select('id,sku,name,unit,is_active')
+    .select('id,sku,name,base_uom,track_inventory,is_active')
     .eq('organization_id', input.organizationId)
     .eq('is_active', true)
     .order('name', { ascending: true })
