@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(20);
+select plan(23);
 
 select has_column('public', 'party_addresses', 'status', 'party addresses have lifecycle status');
 select has_column('public', 'party_tax_registrations', 'status', 'party tax registrations have lifecycle status');
