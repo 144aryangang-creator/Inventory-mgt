@@ -62,8 +62,10 @@ export const createFinancialDocumentDraftSchema = z
       .regex(seriesPattern, 'Series can contain letters, numbers and hyphens')
       .transform((value) => value.toUpperCase()),
     supplyType: supplyTypeSchema,
-    billToSnapshot: objectSnapshotSchema,
-    recipientPartyId: z.uuid().nullable().optional(),
+    recipientPartyId: z.uuid(),
+    billingAddressId: z.uuid(),
+    shippingAddressId: z.uuid().nullable().optional(),
+    recipientTaxRegistrationId: z.uuid().nullable().optional(),
     linkedDocumentId: z.uuid().nullable().optional(),
     currencyCode: z
       .string()
@@ -73,7 +75,6 @@ export const createFinancialDocumentDraftSchema = z
       .default('INR'),
     placeOfSupplyStateCode: optionalTrimmedText(20),
     reverseCharge: z.boolean().default(false),
-    shipToSnapshot: objectSnapshotSchema.default({}),
     notes: optionalTrimmedText(2000),
   })
   .superRefine((value, ctx) => {
