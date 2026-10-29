@@ -47,7 +47,7 @@ financialDocumentRoutes.get('/', async (c) => {
   let query = c
     .get('supabase')
     .from('financial_documents')
-    .select('id,document_type,status,document_date,financial_year_start_year,series_code,document_number,supplier_profile_id,recipient_party_id,linked_document_id,currency_code,supply_type,place_of_supply_state_code,reverse_charge,grand_total,issued_at,cancelled_at,created_at,updated_at')
+    .select('id,document_type,status,document_date,financial_year_start_year,series_code,document_number,supplier_profile_id,recipient_party_id,billing_address_id,shipping_address_id,recipient_tax_registration_id,linked_document_id,currency_code,supply_type,place_of_supply_state_code,reverse_charge,grand_total,issued_at,cancelled_at,created_at,updated_at')
     .eq('organization_id', input.organizationId)
     .order('document_date', { ascending: false })
     .order('created_at', { ascending: false })
@@ -76,7 +76,7 @@ financialDocumentRoutes.get('/:documentId', async (c) => {
   const supabase = c.get('supabase')
   const { data: document, error: documentError } = await supabase
     .from('financial_documents')
-    .select('id,organization_id,document_type,status,document_date,financial_year_start_year,series_code,document_number,supplier_profile_id,recipient_party_id,linked_document_id,currency_code,supply_type,supplier_state_code,place_of_supply_state_code,reverse_charge,supplier_snapshot,bill_to_snapshot,ship_to_snapshot,subtotal,discount_total,taxable_total,cgst_total,sgst_total,utgst_total,igst_total,cess_total,round_off,grand_total,notes,issued_at,cancelled_at,cancellation_reason,created_at,updated_at')
+    .select('id,organization_id,document_type,status,document_date,financial_year_start_year,series_code,document_number,supplier_profile_id,recipient_party_id,billing_address_id,shipping_address_id,recipient_tax_registration_id,linked_document_id,currency_code,supply_type,supplier_state_code,place_of_supply_state_code,reverse_charge,supplier_snapshot,bill_to_snapshot,ship_to_snapshot,subtotal,discount_total,taxable_total,cgst_total,sgst_total,utgst_total,igst_total,cess_total,round_off,grand_total,notes,issued_at,cancelled_at,cancellation_reason,created_at,updated_at')
     .eq('organization_id', input.organizationId)
     .eq('id', input.documentId)
     .maybeSingle()
@@ -127,20 +127,21 @@ financialDocumentRoutes.post('/', async (c) => {
   if (!parsed.success) return validationResponse(c, parsed.error.issues)
 
   const input = parsed.data
-  const { data, error } = await c.get('supabase').rpc('create_financial_document_draft_from_profile', {
+  const { data, error } = await c.get('supabase').rpc('create_financial_document_draft_from_profiles', {
     p_organization_id: input.organizationId,
     p_supplier_profile_id: input.supplierProfileId,
     p_document_type: input.documentType,
     p_document_date: input.documentDate,
     p_series_code: input.seriesCode,
     p_supply_type: input.supplyType,
-    p_bill_to_snapshot: input.billToSnapshot,
-    p_recipient_party_id: input.recipientPartyId ?? null,
+    p_recipient_party_id: input.recipientPartyId,
+    p_billing_address_id: input.billingAddressId,
+    p_shipping_address_id: input.shippingAddressId ?? null,
+    p_recipient_tax_registration_id: input.recipientTaxRegistrationId ?? null,
     p_linked_document_id: input.linkedDocumentId ?? null,
     p_currency_code: input.currencyCode,
     p_place_of_supply_state_code: input.placeOfSupplyStateCode ?? null,
     p_reverse_charge: input.reverseCharge,
-    p_ship_to_snapshot: input.shipToSnapshot,
     p_notes: input.notes ?? null,
   })
 
