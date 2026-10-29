@@ -51,6 +51,7 @@ export type FinancialDocumentTaxInput = z.infer<typeof financialDocumentTaxSchem
 export const createFinancialDocumentDraftSchema = z
   .object({
     organizationId: z.uuid(),
+    supplierProfileId: z.uuid(),
     documentType: financialDocumentTypeSchema,
     documentDate: z.string().regex(isoDatePattern, 'Document date must use YYYY-MM-DD'),
     seriesCode: z
@@ -61,7 +62,6 @@ export const createFinancialDocumentDraftSchema = z
       .regex(seriesPattern, 'Series can contain letters, numbers and hyphens')
       .transform((value) => value.toUpperCase()),
     supplyType: supplyTypeSchema,
-    supplierSnapshot: objectSnapshotSchema,
     billToSnapshot: objectSnapshotSchema,
     recipientPartyId: z.uuid().nullable().optional(),
     linkedDocumentId: z.uuid().nullable().optional(),
@@ -71,7 +71,6 @@ export const createFinancialDocumentDraftSchema = z
       .regex(/^[A-Za-z]{3}$/, 'Currency must contain 3 letters')
       .transform((value) => value.toUpperCase())
       .default('INR'),
-    supplierStateCode: optionalTrimmedText(20),
     placeOfSupplyStateCode: optionalTrimmedText(20),
     reverseCharge: z.boolean().default(false),
     shipToSnapshot: objectSnapshotSchema.default({}),
