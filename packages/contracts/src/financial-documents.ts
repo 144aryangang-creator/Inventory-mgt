@@ -29,6 +29,9 @@ const nonNegativeDecimalSchema = z
 export const financialDocumentTypeSchema = z.enum(['tax_invoice', 'credit_note', 'debit_note'])
 export type FinancialDocumentType = z.infer<typeof financialDocumentTypeSchema>
 
+export const financialDocumentStatusSchema = z.enum(['draft', 'issued', 'cancelled'])
+export type FinancialDocumentStatus = z.infer<typeof financialDocumentStatusSchema>
+
 export const supplyTypeSchema = z.enum(['intra_state', 'inter_state', 'export', 'sez'])
 export type SupplyType = z.infer<typeof supplyTypeSchema>
 
@@ -128,3 +131,18 @@ export const cancelFinancialDocumentSchema = z.object({
   reason: z.string().trim().min(1, 'Cancellation reason is required').max(240),
 })
 export type CancelFinancialDocumentInput = z.infer<typeof cancelFinancialDocumentSchema>
+
+export const listFinancialDocumentsQuerySchema = z.object({
+  organizationId: z.uuid(),
+  documentType: financialDocumentTypeSchema.optional(),
+  status: financialDocumentStatusSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+export type ListFinancialDocumentsQuery = z.infer<typeof listFinancialDocumentsQuerySchema>
+
+export const financialDocumentDetailQuerySchema = z.object({
+  organizationId: z.uuid(),
+  documentId: z.uuid(),
+})
+export type FinancialDocumentDetailQuery = z.infer<typeof financialDocumentDetailQuerySchema>
