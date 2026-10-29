@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(33);
+select plan(35);
 
 select has_table('public', 'financial_documents', 'financial documents table exists');
 select has_table('public', 'financial_document_lines', 'financial document lines table exists');
@@ -37,15 +37,61 @@ insert into public.parties (
   (
     'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
     'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
-    'CUST-INV-A', 'Invoice Customer A', 'Invoice Customer A',
+    'CUST-INV-A', 'Invoice Customer A Private Limited', 'Invoice Customer A',
     '10101010-1010-4010-8010-101010101010', '10101010-1010-4010-8010-101010101010'
   ),
   (
     'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb',
     'bbbbbbbb-2020-4020-8020-bbbbbbbbbbbb',
-    'CUST-INV-B', 'Invoice Customer B', 'Invoice Customer B',
+    'CUST-INV-B', 'Invoice Customer B Private Limited', 'Invoice Customer B',
     '20202020-2020-4020-8020-202020202020', '20202020-2020-4020-8020-202020202020'
   );
+
+insert into public.party_roles (organization_id, party_id, role) values
+  ('aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa', 'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa', 'customer'),
+  ('bbbbbbbb-2020-4020-8020-bbbbbbbbbbbb', 'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb', 'customer');
+
+insert into public.party_addresses (
+  id, organization_id, party_id, label, recipient_name, address_line_1, city,
+  state_name, state_code, postal_code, country_code,
+  is_default_billing, is_default_shipping, is_registered_address, created_by, updated_by
+) values
+  (
+    'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa',
+    'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+    'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+    'Billing', 'Invoice Customer A Private Limited', '10 Buyer Road', 'Bhopal',
+    'Madhya Pradesh', '23', '462010', 'IN', true, false, true,
+    '10101010-1010-4010-8010-101010101010', '10101010-1010-4010-8010-101010101010'
+  ),
+  (
+    'aaaaaaaa-5051-4051-8051-aaaaaaaaaaaa',
+    'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+    'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+    'Shipping', 'Invoice Customer A Warehouse', '20 Delivery Road', 'Indore',
+    'Madhya Pradesh', '23', '452010', 'IN', false, true, false,
+    '10101010-1010-4010-8010-101010101010', '10101010-1010-4010-8010-101010101010'
+  ),
+  (
+    'bbbbbbbb-5050-4050-8050-bbbbbbbbbbbb',
+    'bbbbbbbb-2020-4020-8020-bbbbbbbbbbbb',
+    'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb',
+    'Billing', 'Invoice Customer B Private Limited', '30 Buyer Road', 'Bhopal',
+    'Madhya Pradesh', '23', '462020', 'IN', true, true, true,
+    '20202020-2020-4020-8020-202020202020', '20202020-2020-4020-8020-202020202020'
+  );
+
+insert into public.party_tax_registrations (
+  id, organization_id, party_id, scheme, registration_number, registered_name,
+  country_code, state_code, is_default, verification_status, created_by, updated_by
+) values (
+  'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
+  'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+  'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+  'GSTIN', '23AAAAA1234A1Z5', 'Invoice Customer A Private Limited',
+  'IN', '23', true, 'unverified',
+  '10101010-1010-4010-8010-101010101010', '10101010-1010-4010-8010-101010101010'
+);
 
 insert into public.organization_billing_profiles (
   id, organization_id, code, legal_name, trade_name, gstin,
@@ -76,7 +122,7 @@ select throws_ok(
       supplier_snapshot, bill_to_snapshot, created_by, updated_by
     ) values (
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa', 'tax_invoice', '2026-10-30', 'INV', 'intra_state',
-      '{"legal_name":"Forged Seller"}'::jsonb, '{"legal_name":"Buyer A"}'::jsonb,
+      '{"legal_name":"Forged Seller"}'::jsonb, '{"legal_name":"Forged Buyer"}'::jsonb,
       '10101010-1010-4010-8010-101010101010', '10101010-1010-4010-8010-101010101010'
     )$$,
   '42501',
@@ -89,23 +135,37 @@ select throws_ok(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'tax_invoice', '2026-10-30', 'FORGE', 'intra_state',
       '{"legal_name":"Forged Seller"}'::jsonb,
-      '{"legal_name":"Buyer A"}'::jsonb
+      '{"legal_name":"Forged Buyer"}'::jsonb
     )$$,
   '42501',
   null,
-  'authenticated clients cannot call legacy arbitrary supplier snapshot RPC'
+  'authenticated clients cannot call legacy arbitrary seller and buyer snapshot RPC'
 );
 
-select lives_ok(
+select throws_ok(
   $$select public.create_financial_document_draft_from_profile(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
-      'tax_invoice', '2026-10-30', 'INV', 'intra_state',
-      '{"legal_name":"Invoice Customer A","state_code":"23"}'::jsonb,
-      'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa', null, 'INR', '23', false,
-      '{"address":"Bhopal"}'::jsonb, 'first invoice'
+      'tax_invoice', '2026-10-30', 'FORGE2', 'intra_state',
+      '{"legal_name":"Forged Buyer"}'::jsonb
     )$$,
-  'owner can create a tax invoice draft from an active seller profile'
+  '42501',
+  null,
+  'authenticated clients cannot call seller-only RPC with free-form buyer snapshot'
+);
+
+select lives_ok(
+  $$select public.create_financial_document_draft_from_profiles(
+      'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+      'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
+      'tax_invoice', '2026-10-30', 'INV', 'intra_state',
+      'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+      'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa',
+      'aaaaaaaa-5051-4051-8051-aaaaaaaaaaaa',
+      'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
+      null, 'INR', '23', false, 'first invoice'
+    )$$,
+  'owner can create a tax invoice draft from seller and buyer profiles'
 );
 
 select results_eq(
@@ -130,14 +190,36 @@ select results_eq(
   'supplier identity and state are derived from the selected seller profile'
 );
 
+select results_eq(
+  $$select recipient_party_id,
+           billing_address_id,
+           shipping_address_id,
+           recipient_tax_registration_id,
+           bill_to_snapshot ->> 'legal_name',
+           bill_to_snapshot ->> 'tax_registration_number',
+           ship_to_snapshot ->> 'address_line_1'
+    from public.financial_documents where notes = 'first invoice'$$,
+  $$values (
+      'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa'::uuid,
+      'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa'::uuid,
+      'aaaaaaaa-5051-4051-8051-aaaaaaaaaaaa'::uuid,
+      'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa'::uuid,
+      'Invoice Customer A Private Limited'::text,
+      '23AAAAA1234A1Z5'::text,
+      '20 Delivery Road'::text
+    )$$,
+  'buyer legal, address, shipping and tax identity are derived from selected party profiles'
+);
+
 set local request.jwt.claim.sub = '30303030-3030-4030-8030-303030303030';
 
 select throws_ok(
-  $$select public.create_financial_document_draft_from_profile(
+  $$select public.create_financial_document_draft_from_profiles(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
       'tax_invoice', '2026-10-30', 'INV', 'intra_state',
-      '{"legal_name":"Buyer"}'::jsonb
+      'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+      'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa'
     )$$,
   '42501',
   null,
@@ -147,11 +229,12 @@ select throws_ok(
 set local request.jwt.claim.sub = '10101010-1010-4010-8010-101010101010';
 
 select throws_ok(
-  $$select public.create_financial_document_draft_from_profile(
+  $$select public.create_financial_document_draft_from_profiles(
       'bbbbbbbb-2020-4020-8020-bbbbbbbbbbbb',
       'bbbbbbbb-4040-4040-8040-bbbbbbbbbbbb',
       'tax_invoice', '2026-10-30', 'INV', 'intra_state',
-      '{"legal_name":"Buyer B"}'::jsonb
+      'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb',
+      'bbbbbbbb-5050-4050-8050-bbbbbbbbbbbb'
     )$$,
   '42501',
   null,
@@ -212,12 +295,15 @@ select results_eq(
   'issuing is idempotent with the same request key'
 );
 
-select public.create_financial_document_draft_from_profile(
+select public.create_financial_document_draft_from_profiles(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
   'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
   'tax_invoice', '2026-10-30', 'INV', 'inter_state',
-  '{"legal_name":"Buyer 2"}'::jsonb,
-  null, null, 'INR', '27', false, '{}'::jsonb, 'second invoice'
+  'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+  'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa',
+  null,
+  'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
+  null, 'INR', '27', false, 'second invoice'
 );
 select public.upsert_financial_document_line(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
@@ -237,12 +323,15 @@ select results_eq(
   'series sequence increments under the same financial year'
 );
 
-select public.create_financial_document_draft_from_profile(
+select public.create_financial_document_draft_from_profiles(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
   'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
   'tax_invoice', '2026-10-30', 'BAD', 'inter_state',
-  '{"legal_name":"Bad Tax Buyer"}'::jsonb,
-  null, null, 'INR', '27', false, '{}'::jsonb, 'bad tax invoice'
+  'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+  'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa',
+  null,
+  'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
+  null, 'INR', '27', false, 'bad tax invoice'
 );
 select public.upsert_financial_document_line(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
@@ -264,24 +353,27 @@ select throws_ok(
 );
 
 select lives_ok(
-  $$select public.create_financial_document_draft_from_profile(
+  $$select public.create_financial_document_draft_from_profiles(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
       'credit_note', '2026-10-30', 'CN', 'intra_state',
-      '{"legal_name":"Buyer A"}'::jsonb,
       'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+      'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa',
+      null,
+      'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
       (select id from public.financial_documents where notes = 'first invoice'),
-      'INR', '23', false, '{}'::jsonb, 'credit note linked'
+      'INR', '23', false, 'credit note linked'
     )$$,
   'credit note can link to an issued tax invoice'
 );
 
 select throws_ok(
-  $$select public.create_financial_document_draft_from_profile(
+  $$select public.create_financial_document_draft_from_profiles(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
       'credit_note', '2026-10-30', 'CN', 'intra_state',
-      '{"legal_name":"Buyer A"}'::jsonb
+      'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
+      'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa'
     )$$,
   '23503',
   null,
@@ -349,13 +441,13 @@ select results_eq(
 );
 
 set local request.jwt.claim.sub = '20202020-2020-4020-8020-202020202020';
-select public.create_financial_document_draft_from_profile(
+select public.create_financial_document_draft_from_profiles(
   'bbbbbbbb-2020-4020-8020-bbbbbbbbbbbb',
   'bbbbbbbb-4040-4040-8040-bbbbbbbbbbbb',
   'tax_invoice', '2026-10-30', 'INV', 'intra_state',
-  '{"legal_name":"Buyer B"}'::jsonb,
-  'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb', null, 'INR', '23', false,
-  '{}'::jsonb, 'tenant b invoice'
+  'bbbbbbbb-3030-4030-8030-bbbbbbbbbbbb',
+  'bbbbbbbb-5050-4050-8050-bbbbbbbbbbbb',
+  null, null, null, 'INR', '23', false, 'tenant b invoice'
 );
 
 set local request.jwt.claim.sub = '10101010-1010-4010-8010-101010101010';
@@ -370,7 +462,7 @@ select results_eq(
 select ok(
   (select count(*) from public.audit_events
    where organization_id = 'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa'
-     and entity_type = 'financial_document') >= 8,
+     and entity_type = 'financial_document') >= 10,
   'financial document lifecycle mutations create audit events'
 );
 
