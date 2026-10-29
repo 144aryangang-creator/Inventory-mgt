@@ -4,6 +4,8 @@ import { OrganizationProvider, useOrganization } from '../organizations/Organiza
 
 const navigation = [
   ['/', 'Dashboard'],
+  ['/customers', 'Customers'],
+  ['/suppliers', 'Suppliers'],
   ['/inventory', 'Inventory'],
   ['/invoices', 'Invoices'],
   ['/settings', 'Settings'],
@@ -18,18 +20,11 @@ function AppShellContent() {
       <aside className="sidebar">
         <div className="sidebar-brand">
           <div className="brand-mark" aria-hidden="true">IM</div>
-          <div>
-            <strong>Inventory</strong>
-            <span>Operations</span>
-          </div>
+          <div><strong>Inventory</strong><span>Operations</span></div>
         </div>
 
         <nav className="nav-list" aria-label="Main navigation">
-          {navigation.map(([to, label]) => (
-            <NavLink key={to} to={to} end={to === '/'}>
-              {label}
-            </NavLink>
-          ))}
+          {navigation.map(([to, label]) => <NavLink key={to} to={to} end={to === '/'}>{label}</NavLink>)}
         </nav>
       </aside>
 
@@ -45,11 +40,7 @@ function AppShellContent() {
                 onChange={(event) => selectOrganization(event.target.value)}
               >
                 {organizations.length === 0 ? <option value="">No organization</option> : null}
-                {organizations.map((organization) => (
-                  <option key={organization.id} value={organization.id}>
-                    {organization.name}
-                  </option>
-                ))}
+                {organizations.map((organization) => <option key={organization.id} value={organization.id}>{organization.name}</option>)}
               </select>
             </label>
 
@@ -59,23 +50,15 @@ function AppShellContent() {
             </div>
           </div>
 
-          <button className="secondary-button" type="button" onClick={() => void signOut()}>
-            Sign out
-          </button>
+          <button className="secondary-button" type="button" onClick={() => void signOut()}>Sign out</button>
         </header>
 
-        <main className="content-area">
-          <Outlet />
-        </main>
+        <main className="content-area"><Outlet /></main>
       </div>
     </div>
   )
 }
 
 export function AppShell() {
-  return (
-    <OrganizationProvider>
-      <AppShellContent />
-    </OrganizationProvider>
-  )
+  return <OrganizationProvider><AppShellContent /></OrganizationProvider>
 }

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { createOrganizationSchema, postInventoryMovementSchema } from './index'
+import {
+  createOrganizationSchema,
+  createPartySchema,
+  listPartiesQuerySchema,
+  postInventoryMovementSchema,
+} from './index'
 
 const base = {
   organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -10,54 +15,23 @@ const base = {
 
 describe('postInventoryMovementSchema', () => {
   it('accepts positive inbound decimal strings', () => {
-    expect(
-      postInventoryMovementSchema.safeParse({
-        ...base,
-        movementType: 'receipt',
-        quantity: '10.250000',
-        unitCost: '199.95',
-      }).success,
-    ).toBe(true)
+    expect(postInventoryMovementSchema.safeParse({ ...base, movementType: 'receipt', quantity: '10.250000', unitCost: '199.95' }).success).toBe(true)
   })
 
   it('accepts negative outbound decimal strings', () => {
-    expect(
-      postInventoryMovementSchema.safeParse({
-        ...base,
-        movementType: 'sale',
-        quantity: '-1.5',
-      }).success,
-    ).toBe(true)
+    expect(postInventoryMovementSchema.safeParse({ ...base, movementType: 'sale', quantity: '-1.5' }).success).toBe(true)
   })
 
   it('rejects positive outbound quantities', () => {
-    expect(
-      postInventoryMovementSchema.safeParse({
-        ...base,
-        movementType: 'sale',
-        quantity: '1',
-      }).success,
-    ).toBe(false)
+    expect(postInventoryMovementSchema.safeParse({ ...base, movementType: 'sale', quantity: '1' }).success).toBe(false)
   })
 
   it('rejects zero quantity', () => {
-    expect(
-      postInventoryMovementSchema.safeParse({
-        ...base,
-        movementType: 'receipt',
-        quantity: '0.000000',
-      }).success,
-    ).toBe(false)
+    expect(postInventoryMovementSchema.safeParse({ ...base, movementType: 'receipt', quantity: '0.000000' }).success).toBe(false)
   })
 
   it('rejects values beyond database decimal precision', () => {
-    expect(
-      postInventoryMovementSchema.safeParse({
-        ...base,
-        movementType: 'receipt',
-        quantity: '1.1234567',
-      }).success,
-    ).toBe(false)
+    expect(postInventoryMovementSchema.safeParse({ ...base, movementType: 'receipt', quantity: '1.1234567' }).success).toBe(false)
   })
 })
 
@@ -81,14 +55,50 @@ describe('createOrganizationSchema', () => {
   })
 
   it('rejects unsafe slugs', () => {
-    expect(
-      createOrganizationSchema.safeParse({
-        name: 'Tenant',
-        slug: '../tenant',
-        countryCode: 'IN',
-        baseCurrency: 'INR',
-        timezone: 'Asia/Kolkata',
-      }).success,
-    ).toBe(false)
+    expect(createOrganizationSchema.safeParse({ name: 'Tenant', slug: '../tenant', countryCode: 'IN', baseCurrency: 'INR', timezone: 'Asia/Kolkata' }).success).toBe(false)
+  })
+})
+
+describe('party schemas', () => {
+  it('normalizes party codes and optional email', () => {
+    const parsed = createPartySchema.parse({
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      code: ' cust-001 ',
+      legalName: ' Acme Private Limited ',
+      displayName: ' Acme ',
+      roles: ['customer', 'supplier'],
+      email: 'ACCOUNTS@EXAMPLE.COM',
+      phone: '',
+    })
+
+    expect(parsed.code).toBe('CUST-001')
+    expect(parsed.legalName).toBe('Acme Private Limited')
+    expect(parsed.email).toBe('accounts@example.com')
+    expect(parsed.phone).toBeUndefined()
+  })
+
+  it('rejects unsafe party codes and duplicate roles', () => {
+    const invalidCode = createPartySchema.safeParse({
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      code: '../customer',
+      legalName: 'Acme',
+      displayName: 'Acme',
+      roles: ['customer'],
+    })
+    const duplicateRoles = createPartySchema.safeParse({
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      code: 'CUST-001',
+      legalName: 'Acme',
+      displayName: 'Acme',
+      roles: ['customer', 'customer'],
+    })
+
+    expect(invalidCode.success).toBe(false)
+    expect(duplicateRoles.success).toBe(false)
+  })
+
+  it('bounds party search pagination', () => {
+    expect(listPartiesQuerySchema.safeParse({ organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', limit: '101' }).success).toBe(false)
+    expect(listPartiesQuerySchema.parse({ organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }).limit).toBe(50)
   })
 })
