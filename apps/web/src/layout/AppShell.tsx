@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router'
 import { useAuth } from '../auth/AuthProvider'
+import { OrganizationProvider, useOrganization } from '../organizations/OrganizationProvider'
 
 const navigation = [
   ['/', 'Dashboard'],
@@ -8,8 +9,9 @@ const navigation = [
   ['/settings', 'Settings'],
 ] as const
 
-export function AppShell() {
+function AppShellContent() {
   const { session, signOut } = useAuth()
+  const { organizations, activeOrganization, loading, selectOrganization } = useOrganization()
 
   return (
     <div className="app-shell">
@@ -33,10 +35,30 @@ export function AppShell() {
 
       <div className="workspace">
         <header className="topbar">
-          <div>
-            <span className="eyebrow">Signed in as</span>
-            <strong>{session?.user.email ?? 'User'}</strong>
+          <div className="topbar-context">
+            <label className="organization-switcher">
+              <span className="eyebrow">Organization</span>
+              <select
+                aria-label="Active organization"
+                disabled={loading || organizations.length === 0}
+                value={activeOrganization?.id ?? ''}
+                onChange={(event) => selectOrganization(event.target.value)}
+              >
+                {organizations.length === 0 ? <option value="">No organization</option> : null}
+                {organizations.map((organization) => (
+                  <option key={organization.id} value={organization.id}>
+                    {organization.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="signed-in-user">
+              <span className="eyebrow">Signed in as</span>
+              <strong>{session?.user.email ?? 'User'}</strong>
+            </div>
           </div>
+
           <button className="secondary-button" type="button" onClick={() => void signOut()}>
             Sign out
           </button>
@@ -47,5 +69,13 @@ export function AppShell() {
         </main>
       </div>
     </div>
+  )
+}
+
+export function AppShell() {
+  return (
+    <OrganizationProvider>
+      <AppShellContent />
+    </OrganizationProvider>
   )
 }

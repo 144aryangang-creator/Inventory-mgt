@@ -73,3 +73,27 @@ export const postInventoryMovementSchema = z
   })
 
 export type PostInventoryMovementInput = z.infer<typeof postInventoryMovementSchema>
+
+export const createOrganizationSchema = z.object({
+  name: z.string().trim().min(1, 'Organization name is required').max(120),
+  slug: z
+    .string()
+    .trim()
+    .min(3, 'Slug must be at least 3 characters')
+    .max(63)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9-]*$/, 'Slug can contain only letters, numbers and hyphens')
+    .transform((value) => value.toLowerCase()),
+  countryCode: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{2}$/, 'Country code must contain 2 letters')
+    .transform((value) => value.toUpperCase()),
+  baseCurrency: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/, 'Currency must contain 3 letters')
+    .transform((value) => value.toUpperCase()),
+  timezone: z.string().trim().min(1, 'Timezone is required').max(100),
+})
+
+export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { postInventoryMovementSchema } from './index'
+import { createOrganizationSchema, postInventoryMovementSchema } from './index'
 
 const base = {
   organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -56,6 +56,38 @@ describe('postInventoryMovementSchema', () => {
         ...base,
         movementType: 'receipt',
         quantity: '1.1234567',
+      }).success,
+    ).toBe(false)
+  })
+})
+
+describe('createOrganizationSchema', () => {
+  it('normalizes slug and ISO-like codes', () => {
+    const parsed = createOrganizationSchema.parse({
+      name: ' Bhopal Tractors ',
+      slug: 'Bhopal-Tractors',
+      countryCode: 'in',
+      baseCurrency: 'inr',
+      timezone: 'Asia/Kolkata',
+    })
+
+    expect(parsed).toEqual({
+      name: 'Bhopal Tractors',
+      slug: 'bhopal-tractors',
+      countryCode: 'IN',
+      baseCurrency: 'INR',
+      timezone: 'Asia/Kolkata',
+    })
+  })
+
+  it('rejects unsafe slugs', () => {
+    expect(
+      createOrganizationSchema.safeParse({
+        name: 'Tenant',
+        slug: '../tenant',
+        countryCode: 'IN',
+        baseCurrency: 'INR',
+        timezone: 'Asia/Kolkata',
       }).success,
     ).toBe(false)
   })

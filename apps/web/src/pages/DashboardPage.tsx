@@ -1,62 +1,123 @@
-import { useEffect, useState } from 'react'
-import { apiFetch } from '../lib/api'
+import { createOrganizationSchema } from '@inventory/contracts'
+import { useState, type FormEvent } from 'react'
+import { useOrganization } from '../organizations/OrganizationProvider'
+import { suggestOrganizationSlug } from '../organizations/organization'
 
-type Organization = {
-  id: string
-  name: string
-  slug: string
-  country_code: string
-  base_currency: string
-  timezone: string
-  allow_negative_stock: boolean
-}
+function OrganizationOnboarding() {
+  const { createOrganization } = useOrganization()
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [slugEdited, setSlugEdited] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-type OrganizationResponse = {
-  data: Organization[]
-  requestId: string
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setError(null)
+
+    const parsed = createOrganizationSchema.safeParse({
+      name,
+      slug,
+      countryCode: 'IN',
+      baseCurrency: 'INR',
+      timezone: 'Asia/Kolkata',
+    })
+
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Check the organization details')
+      return
+    }
+
+    setBusy(true)
+    try {
+      await createOrganization(parsed.data)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Could not create organization')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="onboarding-panel">
+      <p className="eyebrow">First setup</p>
+      <h1>Create your organization</h1>
+      <p className="muted">
+        Your organization is the security and data boundary for inventory, customers and invoices.
+      </p>
+
+      <form className="onboarding-form" onSubmit={onSubmit}>
+        <label>
+          Business name
+          <input
+            required
+            maxLength={120}
+            value={name}
+            onChange={(event) => {
+              const nextName = event.target.value
+              setName(nextName)
+              if (!slugEdited) setSlug(suggestOrganizationSlug(nextName))
+            }}
+          />
+        </label>
+
+        <label>
+          Organization slug
+          <input
+            required
+            minLength={3}
+            maxLength={63}
+            pattern="[A-Za-z0-9][A-Za-z0-9-]*"
+            value={slug}
+            onChange={(event) => {
+              setSlugEdited(true)
+              setSlug(event.target.value)
+            }}
+          />
+          <small>Used as a stable organization identifier. Letters, numbers and hyphens only.</small>
+        </label>
+
+        <div className="setup-defaults">
+          <span>Country: India</span>
+          <span>Currency: INR</span>
+          <span>Timezone: Asia/Kolkata</span>
+        </div>
+
+        {error ? <p className="error-message" role="alert">{error}</p> : null}
+
+        <button className="primary-button" disabled={busy} type="submit">
+          {busy ? 'Creating…' : 'Create organization'}
+        </button>
+      </form>
+    </section>
+  )
 }
 
 export function DashboardPage() {
-  const [organizations, setOrganizations] = useState<Organization[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const { organizations, activeOrganization, loading, error } = useOrganization()
 
-  useEffect(() => {
-    let active = true
+  if (loading) {
+    return <div className="centered-panel-state">Loading organization…</div>
+  }
 
-    void apiFetch<OrganizationResponse>('/v1/organizations')
-      .then((response) => {
-        if (!active) return
-        setOrganizations(response.data)
-        setError(null)
-      })
-      .catch((caught) => {
-        if (!active) return
-        setError(caught instanceof Error ? caught.message : 'Could not load organizations')
-      })
-      .finally(() => {
-        if (active) setLoading(false)
-      })
-
-    return () => {
-      active = false
-    }
-  }, [])
+  if (organizations.length === 0) {
+    return <OrganizationOnboarding />
+  }
 
   return (
     <section>
       <div className="page-heading">
         <div>
           <p className="eyebrow">Overview</p>
-          <h1>Dashboard</h1>
-          <p className="muted">Foundation shell. Business KPIs will be added after core modules.</p>
+          <h1>{activeOrganization?.name ?? 'Dashboard'}</h1>
+          <p className="muted">Active organization context for upcoming business modules.</p>
         </div>
       </div>
 
       <div className="card-grid">
         <article className="metric-card">
-          <span>Organizations available</span>
-          <strong>{loading ? '—' : organizations.length}</strong>
+          <span>Accessible organizations</span>
+          <strong>{organizations.length}</strong>
         </article>
         <article className="metric-card">
           <span>Security model</span>
@@ -75,13 +136,12 @@ export function DashboardPage() {
           <h2>Your organizations</h2>
           <span className="status-pill">RLS scoped</span>
         </div>
-        {loading ? <p className="muted">Loading…</p> : null}
-        {!loading && organizations.length === 0 ? (
-          <p className="muted">No organizations are available to this account yet.</p>
-        ) : null}
         <div className="organization-list">
           {organizations.map((organization) => (
-            <div className="organization-row" key={organization.id}>
+            <div
+              className={`organization-row${organization.id === activeOrganization?.id ? ' active' : ''}`}
+              key={organization.id}
+            >
               <div>
                 <strong>{organization.name}</strong>
                 <span>{organization.slug}</span>

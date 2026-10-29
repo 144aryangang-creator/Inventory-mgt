@@ -1,4 +1,4 @@
-import { postInventoryMovementSchema } from '@inventory/contracts'
+import { createOrganizationSchema, postInventoryMovementSchema } from '@inventory/contracts'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
@@ -107,6 +107,62 @@ app.get('/v1/organizations', async (c) => {
   }
 
   return c.json({ data, requestId: c.get('requestId') })
+})
+
+app.post('/v1/organizations', async (c) => {
+  let body: unknown
+  try {
+    body = await c.req.json()
+  } catch {
+    return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400)
+  }
+
+  const parsed = createOrganizationSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: 'validation_failed',
+        issues: parsed.error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          message: issue.message,
+        })),
+        requestId: c.get('requestId'),
+      },
+      400,
+    )
+  }
+
+  const input = parsed.data
+  const { data, error } = await c.get('supabase').rpc('create_organization', {
+    p_name: input.name,
+    p_slug: input.slug,
+    p_country_code: input.countryCode,
+    p_base_currency: input.baseCurrency,
+    p_timezone: input.timezone,
+  })
+
+  if (error) {
+    console.error('organization_create_failed', {
+      requestId: c.get('requestId'),
+      code: error.code,
+    })
+
+    if (error.code === '23505') {
+      return c.json({ error: 'organization_slug_conflict', requestId: c.get('requestId') }, 409)
+    }
+
+    if (error.code === '42501') {
+      return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    }
+
+    if (error.code === '23514' || error.code === '22023') {
+      return c.json({ error: 'invalid_organization', requestId: c.get('requestId') }, 400)
+    }
+
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ organizationId: data, requestId: c.get('requestId') }, 201)
 })
 
 app.post('/v1/inventory/movements', async (c) => {
