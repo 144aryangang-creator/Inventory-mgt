@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   createOrganizationSchema,
+  createPartyAddressSchema,
   createPartySchema,
+  createPartyTaxRegistrationSchema,
   listPartiesQuerySchema,
   postInventoryMovementSchema,
 } from './index'
@@ -100,5 +102,81 @@ describe('party schemas', () => {
   it('bounds party search pagination', () => {
     expect(listPartiesQuerySchema.safeParse({ organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', limit: '101' }).success).toBe(false)
     expect(listPartiesQuerySchema.parse({ organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }).limit).toBe(50)
+  })
+})
+
+describe('party profile schemas', () => {
+  const identity = {
+    organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    partyId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+  }
+
+  it('normalizes address defaults and blank optional fields', () => {
+    const parsed = createPartyAddressSchema.parse({
+      ...identity,
+      label: ' Billing ',
+      recipientName: '',
+      addressLine1: ' 1 Main Road ',
+      addressLine2: '',
+      city: ' Bhopal ',
+      district: '',
+      stateName: 'Madhya Pradesh',
+      stateCode: '23',
+      postalCode: '462001',
+      countryCode: 'in',
+      isDefaultBilling: true,
+    })
+
+    expect(parsed.label).toBe('Billing')
+    expect(parsed.addressLine1).toBe('1 Main Road')
+    expect(parsed.countryCode).toBe('IN')
+    expect(parsed.recipientName).toBeUndefined()
+    expect(parsed.addressLine2).toBeUndefined()
+    expect(parsed.isDefaultBilling).toBe(true)
+    expect(parsed.isDefaultShipping).toBe(false)
+  })
+
+  it('accepts and normalizes a structurally valid GSTIN', () => {
+    const parsed = createPartyTaxRegistrationSchema.parse({
+      ...identity,
+      scheme: 'gstin',
+      registrationNumber: '23abcde1234f1z5',
+      registeredName: 'Example Private Limited',
+      countryCode: 'in',
+      stateCode: '23',
+      isDefault: true,
+    })
+
+    expect(parsed.scheme).toBe('GSTIN')
+    expect(parsed.registrationNumber).toBe('23ABCDE1234F1Z5')
+    expect(parsed.countryCode).toBe('IN')
+  })
+
+  it('rejects malformed GSTIN and mismatched state code', () => {
+    expect(createPartyTaxRegistrationSchema.safeParse({
+      ...identity,
+      scheme: 'GSTIN',
+      registrationNumber: '23BAD',
+      countryCode: 'IN',
+      stateCode: '23',
+    }).success).toBe(false)
+
+    expect(createPartyTaxRegistrationSchema.safeParse({
+      ...identity,
+      scheme: 'GSTIN',
+      registrationNumber: '23ABCDE1234F1Z5',
+      countryCode: 'IN',
+      stateCode: '27',
+    }).success).toBe(false)
+  })
+
+  it('keeps non-GST tax schemes generic', () => {
+    expect(createPartyTaxRegistrationSchema.safeParse({
+      ...identity,
+      scheme: 'VAT',
+      registrationNumber: 'EU-123456',
+      countryCode: 'DE',
+      stateCode: '',
+    }).success).toBe(true)
   })
 })
