@@ -1,0 +1,2 @@
+# Safe to commit. Never hard-code OAuth secrets/API keys here; use env() references.
+project_id = "inventory-mgt"
