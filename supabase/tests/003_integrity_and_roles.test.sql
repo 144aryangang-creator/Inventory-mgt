@@ -63,9 +63,9 @@ select throws_ok(
   $$update public.items
     set organization_id = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
     where id = 'c1000000-0000-0000-0000-000000000001'$$,
-  '55000',
+  '42501',
   null,
-  'A user with access to both tenants still cannot move a row across tenants'
+  'Authenticated clients cannot directly mutate item rows across tenants'
 );
 
 set local request.jwt.claim.sub = '44444444-4444-4444-4444-444444444444';
