@@ -8,6 +8,7 @@ const navigation = [
   ['/suppliers', 'Suppliers'],
   ['/inventory', 'Inventory'],
   ['/invoices', 'Invoices'],
+  ['/payments', 'Payments'],
   ['/settings', 'Settings'],
 ] as const
 
