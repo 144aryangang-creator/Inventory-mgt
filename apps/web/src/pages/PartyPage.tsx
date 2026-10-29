@@ -2,6 +2,7 @@ import { createPartySchema, type PartyRole } from '@inventory/contracts'
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { ApiError, apiFetch } from '../lib/api'
 import { useOrganization } from '../organizations/OrganizationProvider'
+import { PartyProfilePanel } from '../parties/PartyProfilePanel'
 import { buildPartySearchPath, type Party } from '../parties/party'
 
 type PartyResponse = {
@@ -28,6 +29,7 @@ function friendlyPartyError(error: unknown): string {
 export function PartyPage({ role, title, singular }: PartyPageProps) {
   const { activeOrganization, loading: organizationLoading } = useOrganization()
   const [parties, setParties] = useState<Party[]>([])
+  const [selectedParty, setSelectedParty] = useState<Party | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [queryDraft, setQueryDraft] = useState('')
@@ -52,6 +54,10 @@ export function PartyPage({ role, title, singular }: PartyPageProps) {
         buildPartySearchPath(activeOrganization.id, role, query),
       )
       setParties(response.data)
+      setSelectedParty((current) => {
+        if (!current) return null
+        return response.data.find((party) => party.id === current.id) ?? null
+      })
       setError(null)
     } catch (caught) {
       setError(friendlyPartyError(caught))
@@ -59,6 +65,12 @@ export function PartyPage({ role, title, singular }: PartyPageProps) {
       setLoading(false)
     }
   }, [activeOrganization, query, role])
+
+  useEffect(() => {
+    setSelectedParty(null)
+    setQuery('')
+    setQueryDraft('')
+  }, [activeOrganization?.id, role])
 
   useEffect(() => {
     void loadParties()
@@ -115,6 +127,7 @@ export function PartyPage({ role, title, singular }: PartyPageProps) {
         method: 'POST',
         body: JSON.stringify({ organizationId: activeOrganization.id }),
       })
+      if (selectedParty?.id === party.id) setSelectedParty(null)
       await loadParties()
     } catch (caught) {
       setError(friendlyPartyError(caught))
@@ -209,11 +222,24 @@ export function PartyPage({ role, title, singular }: PartyPageProps) {
               <div className="party-roles">
                 {party.roles.map((partyRole) => <span className="status-pill neutral" key={partyRole}>{partyRole}</span>)}
               </div>
-              <button className="text-button danger-text" type="button" onClick={() => void archiveParty(party)}>Archive</button>
+              <div className="party-actions">
+                <button className="text-button" type="button" onClick={() => setSelectedParty((current) => current?.id === party.id ? null : party)}>
+                  {selectedParty?.id === party.id ? 'Close' : 'Manage'}
+                </button>
+                <button className="text-button danger-text" type="button" onClick={() => void archiveParty(party)}>Archive</button>
+              </div>
             </article>
           ))}
         </div>
       </section>
+
+      {selectedParty ? (
+        <PartyProfilePanel
+          organizationId={activeOrganization.id}
+          party={selectedParty}
+          onClose={() => setSelectedParty(null)}
+        />
+      ) : null}
     </section>
   )
 }
