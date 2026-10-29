@@ -87,14 +87,31 @@ describe('financial document contracts', () => {
       quantity: '1',
       uom: 'EA',
       unitPrice: '100',
-      taxableValue: '100',
       taxes: [
-        { component: 'CGST', rate: '9', amount: '9' },
-        { component: 'CGST', rate: '9', amount: '9' },
+        { component: 'CGST', rate: '9' },
+        { component: 'CGST', rate: '9' },
       ],
     })
 
     expect(parsed.success).toBe(false)
+  })
+
+  it('strips client-supplied calculated amounts', () => {
+    const parsed = upsertFinancialDocumentLineSchema.parse({
+      organizationId,
+      documentId,
+      lineNumber: 1,
+      description: 'Item',
+      quantity: '2',
+      uom: 'EA',
+      unitPrice: '100',
+      discountAmount: '10',
+      taxableValue: '1',
+      taxes: [{ component: 'IGST', rate: '18', amount: '0.01' }],
+    })
+
+    expect('taxableValue' in parsed).toBe(false)
+    expect('amount' in parsed.taxes[0]!).toBe(false)
   })
 
   it('rejects binary-number inputs in decimal fields', () => {
@@ -106,7 +123,6 @@ describe('financial document contracts', () => {
       quantity: 1,
       uom: 'EA',
       unitPrice: 100,
-      taxableValue: 100,
     })
 
     expect(parsed.success).toBe(false)
