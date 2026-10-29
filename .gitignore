@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+.dev.vars
+**/.dev.vars
+**/.dev.vars.*
+!**/.dev.vars.example
 *.pem
 *.key
 
@@ -9,7 +13,7 @@
 supabase/.temp/
 supabase/.branches/
 
-# Node / frontend (future)
+# Node / frontend
 node_modules/
 dist/
 coverage/
