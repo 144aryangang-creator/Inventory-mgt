@@ -1,2 +1,3 @@
 # Safe to commit. Never hard-code OAuth secrets/API keys here; use env() references.
+# CI checkpoint: party profile lifecycle migrations + regression tests must pass together.
 project_id = "inventory-mgt"
