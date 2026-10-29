@@ -1,9 +1,12 @@
 import {
   allocateCustomerPaymentSchema,
   createCustomerPaymentSchema,
+  invoicePaymentAllocationsQuerySchema,
   invoicePaymentBalanceQuerySchema,
   listCustomerPaymentsQuerySchema,
   recordAndAllocateInvoicePaymentSchema,
+  reverseCustomerPaymentSchema,
+  reversePaymentAllocationSchema,
 } from '@inventory/contracts/customer-payments'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Hono, type Context } from 'hono'
@@ -122,6 +125,64 @@ customerPaymentRoutes.post('/:paymentId/allocations', async (c) => {
   return c.json({ allocationId: data, requestId: c.get('requestId') }, 201)
 })
 
+customerPaymentRoutes.post('/allocations/:allocationId/reverse', async (c) => {
+  let body: unknown
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return validationResponse(c)
+
+  const parsed = reversePaymentAllocationSchema.safeParse({ ...body, allocationId: c.req.param('allocationId') })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const { data, error } = await c.get('supabase').rpc('reverse_payment_allocation', {
+    p_organization_id: input.organizationId,
+    p_allocation_id: input.allocationId,
+    p_amount: input.amount,
+    p_reason: input.reason,
+    p_request_key: input.requestKey,
+  })
+
+  if (error) {
+    console.error('payment_allocation_reversal_failed', { requestId: c.get('requestId'), code: error.code })
+    if (error.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    if (error.code === 'P0002') return c.json({ error: 'allocation_not_found', requestId: c.get('requestId') }, 404)
+    if (error.code === '22023') return c.json({ error: 'reversal_idempotency_conflict', requestId: c.get('requestId') }, 409)
+    if (error.code === '23514') return c.json({ error: 'reversal_not_allowed', requestId: c.get('requestId') }, 409)
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ reversalId: data, requestId: c.get('requestId') }, 201)
+})
+
+customerPaymentRoutes.post('/:paymentId/reverse', async (c) => {
+  let body: unknown
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return validationResponse(c)
+
+  const parsed = reverseCustomerPaymentSchema.safeParse({ ...body, paymentId: c.req.param('paymentId') })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const { data, error } = await c.get('supabase').rpc('reverse_customer_payment', {
+    p_organization_id: input.organizationId,
+    p_payment_id: input.paymentId,
+    p_amount: input.amount,
+    p_reason: input.reason,
+    p_request_key: input.requestKey,
+  })
+
+  if (error) {
+    console.error('customer_payment_reversal_failed', { requestId: c.get('requestId'), code: error.code })
+    if (error.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    if (error.code === 'P0002') return c.json({ error: 'payment_not_found', requestId: c.get('requestId') }, 404)
+    if (error.code === '22023') return c.json({ error: 'reversal_idempotency_conflict', requestId: c.get('requestId') }, 409)
+    if (error.code === '23514') return c.json({ error: 'reversal_not_allowed', requestId: c.get('requestId') }, 409)
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ reversalId: data, requestId: c.get('requestId') }, 201)
+})
+
 customerPaymentRoutes.post('/invoice/:documentId/receipt', async (c) => {
   let body: unknown
   try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
@@ -185,4 +246,44 @@ customerPaymentRoutes.get('/invoice/:documentId/balance', async (c) => {
 
   const balance = Array.isArray(data) ? data[0] ?? null : data
   return c.json({ data: balance, requestId: c.get('requestId') })
+})
+
+customerPaymentRoutes.get('/invoice/:documentId/allocations', async (c) => {
+  const parsed = invoicePaymentAllocationsQuerySchema.safeParse({
+    organizationId: c.req.query('organizationId'),
+    documentId: c.req.param('documentId'),
+  })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const { data: allocations, error: allocationError } = await c
+    .get('supabase')
+    .from('payment_allocations')
+    .select('id,payment_id,financial_document_id,amount,request_key,created_at')
+    .eq('organization_id', input.organizationId)
+    .eq('financial_document_id', input.documentId)
+    .order('created_at', { ascending: true })
+
+  if (allocationError) {
+    console.error('invoice_payment_allocations_failed', { requestId: c.get('requestId'), code: allocationError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  const allocationIds = (allocations ?? []).map((allocation) => allocation.id)
+  if (allocationIds.length === 0) return c.json({ data: [], requestId: c.get('requestId') })
+
+  const { data: reversals, error: reversalError } = await c
+    .get('supabase')
+    .from('payment_allocation_reversals')
+    .select('id,allocation_id,amount,reason,request_key,created_at')
+    .eq('organization_id', input.organizationId)
+    .in('allocation_id', allocationIds)
+    .order('created_at', { ascending: true })
+
+  if (reversalError) {
+    console.error('invoice_payment_allocation_reversals_failed', { requestId: c.get('requestId'), code: reversalError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ data: allocations, reversals: reversals ?? [], requestId: c.get('requestId') })
 })
