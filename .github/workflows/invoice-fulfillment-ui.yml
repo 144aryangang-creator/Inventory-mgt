@@ -1,0 +1,99 @@
+name: One-time invoice fulfillment UI integration
+
+on:
+  push:
+    branches:
+      - foundation/bootstrap
+    paths:
+      - .github/workflows/invoice-fulfillment-ui.yml
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: foundation/bootstrap
+
+      - name: Patch invoice workspace and API error mapping
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          page = Path('apps/web/src/pages/InvoicesPage.tsx')
+          text = page.read_text()
+
+          text = text.replace(
+              "import { useOrganization } from '../organizations/OrganizationProvider'\n",
+              "import { useOrganization } from '../organizations/OrganizationProvider'\nimport { InvoiceFulfillmentPanel } from '../invoices/InvoiceFulfillmentPanel'\n",
+          )
+
+          text = text.replace(
+              "type SellerProfile = {\n",
+              "type InventoryItem = {\n  id: string\n  sku: string\n  name: string\n  is_active: boolean\n}\n\ntype SellerProfile = {\n",
+          )
+
+          text = text.replace(
+              "type LineForm = {\n  description: string\n",
+              "type LineForm = {\n  itemId: string\n  description: string\n",
+          )
+
+          text = text.replace(
+              "const emptyLine: LineForm = {\n  description: '', hsnSac: '', quantity: '1', uom: 'EA', unitPrice: '', discountAmount: '0',\n",
+              "const emptyLine: LineForm = {\n  itemId: '', description: '', hsnSac: '', quantity: '1', uom: 'EA', unitPrice: '', discountAmount: '0',\n",
+          )
+
+          text = text.replace(
+              "  const [sellerProfiles, setSellerProfiles] = useState<SellerProfile[]>([])\n  const [customers, setCustomers] = useState<Party[]>([])\n",
+              "  const [sellerProfiles, setSellerProfiles] = useState<SellerProfile[]>([])\n  const [customers, setCustomers] = useState<Party[]>([])\n  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])\n",
+          )
+
+          old_refs = """    const [sellerResponse, customerResponse] = await Promise.all([\n      apiFetch<ListResponse<SellerProfile>>(\n        `/v1/organization-billing-profiles?organizationId=${encodeURIComponent(activeOrganization.id)}`,\n      ),\n      apiFetch<ListResponse<Party>>(buildPartySearchPath(activeOrganization.id, 'customer', '')),\n    ])\n    setSellerProfiles(sellerResponse.data)\n    setCustomers(customerResponse.data)\n"""
+          new_refs = """    const [sellerResponse, customerResponse, itemResponse] = await Promise.all([\n      apiFetch<ListResponse<SellerProfile>>(\n        `/v1/organization-billing-profiles?organizationId=${encodeURIComponent(activeOrganization.id)}`,\n      ),\n      apiFetch<ListResponse<Party>>(buildPartySearchPath(activeOrganization.id, 'customer', '')),\n      apiFetch<ListResponse<InventoryItem>>(\n        `/v1/inventory/items?organizationId=${encodeURIComponent(activeOrganization.id)}&limit=100`,\n      ),\n    ])\n    setSellerProfiles(sellerResponse.data)\n    setCustomers(customerResponse.data)\n    setInventoryItems(itemResponse.data)\n"""
+          if old_refs not in text:
+              raise SystemExit('loadReferences pattern not found')
+          text = text.replace(old_refs, new_refs)
+
+          old_parse = """    const parsed = upsertFinancialDocumentLineSchema.safeParse({\n      organizationId: activeOrganization.id,\n      documentId: detail.document.id,\n      lineNumber: nextLineNumber,\n      description: line.description,\n"""
+          new_parse = """    const selectedItem = inventoryItems.find((item) => item.id === line.itemId)\n    const parsed = upsertFinancialDocumentLineSchema.safeParse({\n      organizationId: activeOrganization.id,\n      documentId: detail.document.id,\n      lineNumber: nextLineNumber,\n      itemId: selectedItem?.id,\n      itemSnapshot: selectedItem ? { sku: selectedItem.sku, name: selectedItem.name } : {},\n      description: line.description,\n"""
+          if old_parse not in text:
+              raise SystemExit('line parse pattern not found')
+          text = text.replace(old_parse, new_parse)
+
+          old_form = """                  <h3>Add line {nextLineNumber}</h3>\n                  <label className=\"invoice-full-field\">Description<input required maxLength={500} value={line.description} onChange={(e) => setLine({ ...line, description: e.target.value })} /></label>\n"""
+          new_form = """                  <h3>Add line {nextLineNumber}</h3>\n                  <label>Inventory item<select value={line.itemId} onChange={(e) => {\n                    const itemId = e.target.value\n                    const selectedItem = inventoryItems.find((item) => item.id === itemId)\n                    setLine({ ...line, itemId, description: line.description || selectedItem?.name || '' })\n                  }}>\n                    <option value=\"\">Non-stock / service line</option>\n                    {inventoryItems.map((item) => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}\n                  </select></label>\n                  <label className=\"invoice-full-field\">Description<input required maxLength={500} value={line.description} onChange={(e) => setLine({ ...line, description: e.target.value })} /></label>\n"""
+          if old_form not in text:
+              raise SystemExit('line form pattern not found')
+          text = text.replace(old_form, new_form)
+
+          marker = """              <div className=\"invoice-lines\">\n"""
+          fulfillment = """              <InvoiceFulfillmentPanel\n                organizationId={activeOrganization.id}\n                documentId={detail.document.id}\n                documentStatus={detail.document.status}\n                hasStockLines={detail.lines.some((documentLine) => Boolean(documentLine.item_id))}\n                onChanged={async () => {\n                  await Promise.all([loadDocuments(), loadDetail(detail.document.id)])\n                }}\n              />\n\n              <div className=\"invoice-lines\">\n"""
+          if marker not in text:
+              raise SystemExit('invoice lines marker not found')
+          text = text.replace(marker, fulfillment, 1)
+
+          page.write_text(text)
+
+          css = Path('apps/web/src/invoices.css')
+          css.write_text(css.read_text() + r'''\n\n.invoice-fulfillment {\n  display: flex;\n  justify-content: space-between;\n  gap: 16px;\n  align-items: center;\n  margin: 16px 0;\n  padding: 14px;\n  border: 1px solid var(--border);\n  border-radius: 10px;\n  background: var(--surface-subtle);\n}\n\n.invoice-fulfillment.fulfilled {\n  border-color: #b7e4c7;\n  background: #f0fdf4;\n}\n\n.invoice-fulfillment > div:first-child {\n  display: grid;\n  gap: 4px;\n}\n\n.invoice-fulfillment small {\n  color: var(--muted);\n  font-size: 0.76rem;\n}\n\n.invoice-fulfillment-actions {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n}\n\n.invoice-fulfillment-actions select {\n  min-width: 180px;\n  padding: 9px 10px;\n  border: 1px solid #cfd7e6;\n  border-radius: 8px;\n  background: #fff;\n}\n\n@media (max-width: 760px) {\n  .invoice-fulfillment,\n  .invoice-fulfillment-actions {\n    align-items: stretch;\n    flex-direction: column;\n  }\n\n  .invoice-fulfillment-actions select {\n    min-width: 0;\n    width: 100%;\n  }\n}\n''')
+
+          api = Path('apps/api/src/financial-documents.ts')
+          api_text = api.read_text()
+          old = """    if (error.code === '22023') return c.json({ error: 'invalid_cancellation', requestId: c.get('requestId') }, 400)\n    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)\n"""
+          new = """    if (error.code === '22023') return c.json({ error: 'invalid_cancellation', requestId: c.get('requestId') }, 400)\n    if (error.code === '23514') return c.json({ error: 'fulfilled_invoice_requires_stock_reversal', requestId: c.get('requestId') }, 409)\n    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)\n"""
+          if old not in api_text:
+              raise SystemExit('cancellation mapping pattern not found')
+          api.write_text(api_text.replace(old, new, 1))
+          PY
+
+          git rm .github/workflows/invoice-fulfillment-ui.yml
+          git config user.name "Inventory CI"
+          git config user.email "inventory-ci@users.noreply.github.com"
+          git add apps/web/src/pages/InvoicesPage.tsx apps/web/src/invoices.css apps/api/src/financial-documents.ts
+          git commit -m "feat: integrate invoice inventory fulfillment"
+          git push origin HEAD:foundation/bootstrap
