@@ -46,6 +46,25 @@ export const allocateCustomerPaymentSchema = z.object({
 })
 export type AllocateCustomerPaymentInput = z.infer<typeof allocateCustomerPaymentSchema>
 
+export const recordAndAllocateInvoicePaymentSchema = z.object({
+  organizationId: z.uuid(),
+  customerPartyId: z.uuid(),
+  documentId: z.uuid(),
+  paymentDate: z.string().regex(isoDatePattern, 'Payment date must use YYYY-MM-DD'),
+  amount: positiveDecimalSchema,
+  currencyCode: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/, 'Currency must contain 3 letters')
+    .transform((value) => value.toUpperCase()),
+  method: paymentMethodSchema,
+  paymentRequestKey: z.string().trim().min(1, 'Payment request key is required').max(128),
+  allocationRequestKey: z.string().trim().min(1, 'Allocation request key is required').max(128),
+  reference: optionalText(120),
+  notes: optionalText(1000),
+})
+export type RecordAndAllocateInvoicePaymentInput = z.infer<typeof recordAndAllocateInvoicePaymentSchema>
+
 export const listCustomerPaymentsQuerySchema = z.object({
   organizationId: z.uuid(),
   customerPartyId: z.uuid().optional(),
