@@ -1,0 +1,125 @@
+.seller-heading {
+  align-items: flex-start;
+}
+
+.seller-error {
+  margin-bottom: 16px;
+}
+
+.seller-form-panel {
+  margin-bottom: 20px;
+}
+
+.seller-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.seller-form label {
+  display: grid;
+  gap: 6px;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.seller-form input:not([type='checkbox']) {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  background: #fff;
+  outline: none;
+}
+
+.seller-form input:not([type='checkbox']):focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(33 87 213 / 12%);
+}
+
+.seller-full-field,
+.seller-default-check,
+.seller-form-note,
+.seller-form-actions {
+  grid-column: 1 / -1;
+}
+
+.seller-default-check {
+  display: flex !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.seller-form-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.seller-form-actions,
+.seller-profile-actions,
+.seller-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.seller-profile-list {
+  display: grid;
+  gap: 10px;
+}
+
+.seller-profile-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.seller-profile-card p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.seller-profile-title {
+  flex-wrap: wrap;
+}
+
+.status-pill.verification-verified {
+  background: #ecfdf3;
+  color: #027a48;
+}
+
+.status-pill.verification-invalid {
+  background: #fef3f2;
+  color: var(--danger);
+}
+
+.status-pill.verification-unverified {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+@media (max-width: 700px) {
+  .seller-form {
+    grid-template-columns: 1fr;
+  }
+
+  .seller-full-field,
+  .seller-default-check,
+  .seller-form-note,
+  .seller-form-actions {
+    grid-column: 1;
+  }
+
+  .seller-profile-card {
+    flex-direction: column;
+  }
+}
