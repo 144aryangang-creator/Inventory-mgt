@@ -11,17 +11,20 @@ import {
 const organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const documentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const supplierProfileId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const recipientPartyId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+const billingAddressId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 describe('financial document contracts', () => {
   it('normalizes series and currency', () => {
     const parsed = createFinancialDocumentDraftSchema.parse({
       organizationId,
       supplierProfileId,
+      recipientPartyId,
+      billingAddressId,
       documentType: 'tax_invoice',
       documentDate: '2026-10-30',
       seriesCode: ' inv ',
       supplyType: 'intra_state',
-      billToSnapshot: { legalName: 'Buyer' },
       currencyCode: 'inr',
     })
 
@@ -29,41 +32,47 @@ describe('financial document contracts', () => {
     expect(parsed.currencyCode).toBe('INR')
   })
 
-  it('requires a seller profile and strips arbitrary supplier identity', () => {
+  it('requires seller and buyer profile IDs and strips arbitrary identity snapshots', () => {
     expect(createFinancialDocumentDraftSchema.safeParse({
-      organizationId,
-      documentType: 'tax_invoice',
-      documentDate: '2026-10-30',
-      seriesCode: 'INV',
-      supplyType: 'intra_state',
-      billToSnapshot: {},
-    }).success).toBe(false)
-
-    const parsed = createFinancialDocumentDraftSchema.parse({
       organizationId,
       supplierProfileId,
       documentType: 'tax_invoice',
       documentDate: '2026-10-30',
       seriesCode: 'INV',
       supplyType: 'intra_state',
-      billToSnapshot: {},
+    }).success).toBe(false)
+
+    const parsed = createFinancialDocumentDraftSchema.parse({
+      organizationId,
+      supplierProfileId,
+      recipientPartyId,
+      billingAddressId,
+      documentType: 'tax_invoice',
+      documentDate: '2026-10-30',
+      seriesCode: 'INV',
+      supplyType: 'intra_state',
       supplierSnapshot: { legalName: 'Forged Seller' },
       supplierStateCode: '99',
+      billToSnapshot: { legalName: 'Forged Buyer' },
+      shipToSnapshot: { address: 'Forged Address' },
     })
 
     expect('supplierSnapshot' in parsed).toBe(false)
     expect('supplierStateCode' in parsed).toBe(false)
+    expect('billToSnapshot' in parsed).toBe(false)
+    expect('shipToSnapshot' in parsed).toBe(false)
   })
 
   it('requires credit and debit notes to reference an invoice', () => {
     const parsed = createFinancialDocumentDraftSchema.safeParse({
       organizationId,
       supplierProfileId,
+      recipientPartyId,
+      billingAddressId,
       documentType: 'credit_note',
       documentDate: '2026-10-30',
       seriesCode: 'CN',
       supplyType: 'intra_state',
-      billToSnapshot: {},
     })
 
     expect(parsed.success).toBe(false)
