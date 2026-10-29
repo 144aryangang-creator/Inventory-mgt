@@ -1,42 +1,43 @@
 # Inventory Management + Invoicing SaaS
 
-Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost infrastructure, keep security enforced in the database, and scale progressively without rewriting the core.
+Configurable multi-tenant inventory + invoicing SaaS. Security and business invariants are enforced in PostgreSQL; the web/API layers remain tenant-scoped clients of that model.
 
-> **Resume rule:** Read this README first. Update it after major milestones, important design/security changes, and before ending substantial work.
+> **Resume rule:** Read this README first. Update it after major milestones, security/data-model changes, and before ending substantial work.
 
-## Current status
+## Current checkpoint
 
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
-- Main branch: foundation work not merged yet
-- Database foundation + tenant RLS: **implemented + CI green**
-- Inventory ledger: **implemented + tested**
-- API foundation: **implemented + CI green**
-- React auth/application shell: **implemented + CI green**
-- Organization onboarding/context: **implemented + CI green**
-- Customer/supplier party master + addresses + tax registrations: **implemented + CI green**
-- Seller/legal billing profiles: **implemented + tested**
-- GST financial document core: **implemented + DB CI green**
-- Profile-derived seller/buyer invoice snapshots: **implemented + tested**
-- PostgreSQL-authoritative invoice line/tax arithmetic: **implemented + tested**
-- Financial document API list/detail/create/line/issue/cancel: **implemented + application validation green**
-- Seller settings page: **implemented**
-- First tax-invoice web workspace: **implemented**
-- Atomic full sales-invoice stock fulfilment: **implemented + CI green**
-- Reproducible npm lockfile: **committed; CI uses `npm ci`**
-- Production deployment: not started
-- Real production credentials: not configured or committed
+- Main branch: foundation work is not merged yet
+- Database CI: **GREEN** — run `40975060189`
+- Application CI: **GREEN** — run `40975283477`
+- Production deployment: **not started**
+- Production credentials/customer data: **not configured or committed**
 
-## User requirements
+### Implemented and validated
 
-- Complete inventory management + invoicing system
-- Customizable per business without separate code forks
-- Start as close to free as practical
-- Clear path to large scale
-- Production-grade security, testing, backups and observability
-- Research current best practices before major decisions
-- Prefer concise pointers/checklists in discussion
-- Keep this README as persistent handoff memory
+- Supabase/PostgreSQL foundation + tenant RLS
+- organization onboarding + active-tenant UX
+- immutable inventory movement ledger + transactional balances
+- customer/supplier party master
+- party addresses + tax registrations/GSTIN structure validation
+- seller/legal billing profiles
+- GST financial-document core
+- PostgreSQL-derived seller/buyer/address/tax snapshots
+- PostgreSQL-authoritative invoice line/tax arithmetic
+- inventory-item selection on invoice lines
+- PostgreSQL-authoritative item snapshots; browser snapshot JSON is ignored
+- financial-year/series invoice numbering + idempotent issue
+- issued-document immutability + cancellation rules
+- atomic full sales-invoice fulfilment from one warehouse
+- immutable/idempotent customer payment receipts
+- immutable payment allocations
+- derived invoice payment balance/status
+- atomic “record receipt + allocate to invoice” database/API path
+- customer Payments web workspace
+- React auth shell + tenant switcher
+- customer/supplier/profile/settings/invoice/payment application surfaces
+- reproducible npm lockfile + read-only CI
 
 ## Architecture
 
@@ -48,39 +49,41 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 | API | Hono + TypeScript on Cloudflare Workers |
 | Database/Auth | Supabase PostgreSQL + Supabase Auth |
 | Tenant isolation | PostgreSQL RLS |
-| Inventory truth | Immutable stock movement ledger |
+| Inventory truth | Append-only stock movement ledger |
 | Stock balance | Transactional cache with row locking |
-| Financial documents | Drafts editable; issued documents immutable snapshots |
-| Legal identities | Seller + buyer snapshots derived from tenant-owned profile IDs in PostgreSQL |
-| Tax math | PostgreSQL `numeric`; browser calculations are preview-only |
-| Numeric transport | Decimal strings across JS boundaries |
-| Storage | Supabase Storage initially; Cloudflare R2 where useful |
+| Financial documents | Drafts editable; issued documents immutable |
+| Legal/tax identity | PostgreSQL-built immutable snapshots |
+| Invoice item identity | PostgreSQL-built immutable item snapshots |
+| Tax/money math | PostgreSQL `numeric`; decimal strings across JS boundaries |
+| Payments | Immutable receipt + allocation ledgers |
 | CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
-| Scale strategy | indexes/pooling/queues first; split services only when justified |
+| Scale path | indexes/pooling/queues first; split services only when justified |
 
 ## Non-negotiable invariants
 
-1. Every tenant-owned record has an organization relationship.
+1. Every tenant-owned record is related to an organization.
 2. PostgreSQL RLS is the tenant authorization boundary.
-3. Client-selected organization state is UX only; it never grants access.
-4. `organization_id` cannot be silently changed between tenants.
-5. Inventory movements are append-only.
-6. Stock corrections use reversing/correcting movements.
-7. Stock posting is transactional and locks the balance row.
-8. Negative inventory is blocked unless explicitly enabled.
-9. Dangerous mutations use idempotency protection.
-10. Money/tax/quantity logic never relies on binary floating point as the source of truth.
-11. Issued financial documents and their lines/taxes are immutable.
-12. Corrections to issued documents use cancellation or linked credit/debit notes rather than destructive edits.
-13. Critical mutations create append-only audit events.
-14. Secrets and real production customer data never enter Git.
-15. Schema changes are version-controlled migrations.
-16. Issued legal/tax snapshots must not depend on later master-data edits.
-17. Authenticated clients cannot supply free-form seller/buyer legal snapshots for invoice creation.
-18. Authenticated clients cannot supply authoritative taxable values or tax amounts.
+3. Client-selected organization state is UX only and never grants access.
+4. `organization_id` cannot be silently reassigned between tenants.
+5. Inventory movements are append-only; corrections use reversing movements.
+6. Stock posting is transactional and locks the balance row.
+7. Negative inventory is blocked unless the organization explicitly allows it.
+8. Dangerous mutations use idempotency keys.
+9. Money/tax/quantity logic does not use JS floating point as source of truth.
+10. Issued financial documents, lines and taxes are immutable.
+11. Issued-document corrections use cancellation/credit/debit workflows, not edits.
+12. Critical mutations append audit events.
+13. Secrets and real production customer data never enter Git.
+14. Schema changes are version-controlled migrations with unique versions.
+15. Historical invoice snapshots never depend on later master-data edits.
+16. Authenticated clients cannot provide authoritative seller/buyer snapshots.
+17. Authenticated clients cannot provide authoritative item snapshots.
+18. Authenticated clients cannot provide authoritative taxable values/tax amounts.
+19. Payment receipts and allocations are immutable ledger records.
+20. Payment allocation must match invoice customer/currency and cannot over-allocate.
 
-## Implemented database
+## Database
 
 ### Foundation / inventory
 
@@ -92,322 +95,309 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 - `inventory_movements`
 - `audit_events`
 
-### Parties
+Inventory writes use `post_inventory_movement(...)` with row locking, deterministic/idempotent request keys, exact decimal quantities and negative-stock protection.
 
-- one reusable `parties` master
-- `party_roles` for customer/supplier roles
+### Parties / tax profiles
+
+- reusable `parties` master
+- `party_roles` (`customer`, `supplier`)
 - multiple `party_addresses`
 - multiple `party_tax_registrations`
-- archive lifecycle instead of destructive delete
-- GSTIN structural validation; verification remains `unverified` until a trusted source confirms it
-- party archive atomically archives active child addresses/tax registrations and clears default flags
-- tenant-checked party search RPC
-
-### Seller / organization billing profiles
-
 - `organization_billing_profiles`
-- legal name, trade name, GSTIN, registered address/state/postcode
-- one active default seller profile per organization
-- owner/admin-only mutation; staff/viewer may read via normal membership RLS
-- first active profile becomes default automatically
-- changing GSTIN resets verification status to `unverified`
-- GSTIN structure/state-code consistency enforced in both contracts and PostgreSQL
-- seller snapshot helper is internal and not client executable
-- archive lifecycle; no destructive client delete
+- archive lifecycle rather than destructive client delete
+- one active default billing/shipping/tax/seller profile where applicable
+- GSTIN structural/state-code validation
+- verification remains `unverified` until a trusted external verification source confirms it
+- party archive cascades active profile records to archived state
 
 ### Financial documents
+
+Core tables:
 
 - `financial_documents`
 - `financial_document_lines`
 - `financial_document_line_taxes`
 - internal `financial_document_sequences`
-- types: tax invoice, credit note, debit note
-- lifecycle: draft -> issued -> cancelled
-- financial-year-aware, row-locked sequence allocation
-- serial number capped at 16 characters
+
+Supported document types: tax invoice, credit note, debit note.
+
+Implemented rules:
+
+- lifecycle `draft -> issued -> cancelled`
+- financial-year-aware row-locked number allocation
+- generated serial capped at 16 characters
 - separate CGST / SGST / UTGST / IGST / CESS components
-- place-of-supply/supply-type fields
-- issue-time validation prevents IGST on intra-State documents and CGST/SGST/UTGST on inter-State/export/SEZ documents
-- issue-time totals calculated by PostgreSQL
+- place-of-supply and supply-type validation
+- issue-time PostgreSQL totals
 - idempotent issue request key
-- issued header/lines/taxes immutable
-- credit/debit notes require a linked issued/cancelled tax invoice in the same tenant
-- cancellation preserves issued number and records actor/reason
-- internal sequence table is not readable by authenticated clients
+- immutable issued header/lines/taxes
+- credit/debit note linkage to original tax invoice
+- cancellation preserves the issued number and records actor/reason
+- seller/customer/address/GST records referenced by tenant-owned IDs
+- PostgreSQL constructs immutable seller/bill-to/ship-to snapshots
+- PostgreSQL calculates gross/taxable/tax values
+- selected item IDs are resolved by PostgreSQL into immutable item snapshots
+- browser-supplied `item_snapshot` is accepted only for backward signature compatibility and is ignored
 
-### Invoice identity hardening
+### Sales fulfilment
 
-Financial-document drafts bind to exact master-data IDs:
+`20261030001400_sales_fulfillment.sql` adds immutable sales fulfilment records.
 
-- seller profile: `supplier_profile_id`
-- customer party: `recipient_party_id`
-- billing address: `billing_address_id`
-- shipping address: `shipping_address_id`
-- optional customer tax registration: `recipient_tax_registration_id`
+Current V1 behavior:
 
-PostgreSQL constructs immutable `supplier_snapshot`, `bill_to_snapshot`, and `ship_to_snapshot` JSON from those tenant-owned active records. Composite foreign keys prevent cross-party/cross-tenant address or tax-registration substitution.
+- fulfilment is separate from invoice issue
+- only an issued invoice can be fulfilled
+- one active warehouse is selected for the fulfilment
+- all stock-backed invoice lines are posted atomically
+- inventory movement type is `sale`
+- deterministic/idempotent movement keys prevent duplicate stock posting
+- insufficient stock rolls back the whole fulfilment
+- a second fulfilment with another key is rejected
+- fulfilled invoice cancellation is blocked until an explicit stock-reversal workflow exists
 
-Legacy authenticated draft functions that accepted arbitrary legal snapshot JSON are revoked.
+**Not yet implemented:** partial/multi-warehouse fulfilment and returns/reversal workflow.
 
-### Invoice arithmetic hardening
+### Customer payments
 
-Authenticated clients submit only:
+`20261030001500_customer_payments.sql` adds:
 
-- quantity
-- unit price
-- discount
-- tax component + tax rate
+- `customer_payments`
+- `payment_allocations`
+- immutable ledger triggers
+- RLS read access; writes only through audited RPCs
+- idempotent payment and allocation request keys
+- customer/currency matching
+- payment/invoice row locking
+- payment remaining-balance validation
+- invoice remaining-balance validation
+- cancellation blocking when allocations exist
+- `invoice_payment_balance(...)` returning `grand_total`, `allocated_total`, `balance_due`, `payment_status`
 
-PostgreSQL derives:
+`20261030001600_atomic_invoice_receipt.sql` adds `record_and_allocate_invoice_payment(...)`, so the normal “receive money against this invoice” path creates the receipt and allocation in one PostgreSQL transaction. If allocation fails, no orphan receipt remains.
 
-- gross line value
-- taxable line value
-- each tax amount
-- document subtotal/tax totals/grand total at issue
+**Not yet implemented:** payment reversal/refund/correction workflow.
 
-The older line RPC that accepted client-supplied taxable value/tax amount is revoked for authenticated users.
+## Migrations
 
-### Security / integrity
+1. `20261030000100_foundation.sql`
+2. `20261030000200_tenant_hardening.sql`
+3. `20261030000300_parties.sql`
+4. `20261030000400_party_search.sql`
+5. `20261030000500_party_profiles.sql`
+6. `20261030000600_party_archive_cascade.sql`
+7. `20261030000700_financial_documents.sql`
+8. `20261030000800_financial_document_trigger_hardening.sql`
+9. `20261030000900_organization_billing_profiles.sql`
+10. `20261030001000_billing_profile_hardening.sql`
+11. `20261030001100_financial_document_supplier_profiles.sql`
+12. `20261030001200_financial_document_recipient_profiles.sql`
+13. `20261030001300_financial_line_calculation.sql`
+14. `20261030001400_sales_fulfillment.sql`
+15. `20261030001500_customer_payments.sql`
+16. `20261030001600_atomic_invoice_receipt.sql`
+17. `20261030001700_financial_line_item_snapshot_hardening.sql`
 
-- roles: `owner`, `admin`, `staff`, `viewer`
-- active/suspended memberships
-- RLS on client-facing tables
-- `SECURITY DEFINER` helpers/RPCs use fixed `search_path`
-- cross-tenant FK protection
-- tenant reassignment protection
-- direct client ledger/financial mutation denied
-- movement/audit and issued-document immutability
-- transactional row locking for stock and invoice number allocation
-- append-only audit trail for critical mutations
+Migration versions are currently unique; do not reuse an existing timestamp/version.
 
-### Current secure RPCs
+## pgTAP regression suites
 
-- `create_organization(...)`
-- `post_inventory_movement(...)`
-- party create/update/archive + address/tax-registration lifecycle RPCs
-- `search_parties(...)`
-- seller-profile create/update/archive RPCs
-- `create_financial_document_draft_from_profiles(...)`
-- `upsert_financial_document_line_calculated(...)`
-- `remove_financial_document_line(...)`
-- `issue_financial_document(...)`
-- `cancel_financial_document(...)`
+1. `001_foundation_structure.test.sql`
+2. `002_tenant_inventory_security.test.sql`
+3. `003_integrity_and_roles.test.sql`
+4. `004_parties_security.test.sql`
+5. `005_party_profiles_security.test.sql`
+6. `006_party_archive_cascade.test.sql`
+7. `007_financial_documents_security.test.sql`
+8. `008_organization_billing_profiles.test.sql`
+9. `009_sales_fulfillment.test.sql` — 19 assertions
+10. `010_customer_payments.test.sql` — 22 assertions
+11. `011_atomic_invoice_receipt.test.sql` — 8 assertions
+12. `012_item_snapshot_hardening.test.sql` — 4 assertions
 
-Deprecated authenticated paths intentionally revoked:
+Current database CI rebuilds the complete migration chain, lints the schema, runs suites `001–012`, and shuts Supabase down cleanly.
 
-- `create_financial_document_draft(...)`
-- `create_financial_document_draft_from_profile(...)`
-- `upsert_financial_document_line(...)`
+## API
 
-### Migrations
+`apps/api` uses verified bearer JWTs and a user-scoped Supabase client. Normal business requests do **not** use service-role credentials.
 
-- `20261030000100_foundation.sql`
-- `20261030000200_tenant_hardening.sql`
-- `20261030000300_parties.sql`
-- `20261030000400_party_search.sql`
-- `20261030000500_party_profiles.sql`
-- `20261030000600_party_archive_cascade.sql`
-- `20261030000700_financial_documents.sql`
-- `20261030000800_financial_document_trigger_hardening.sql`
-- `20261030000900_organization_billing_profiles.sql`
-- `20261030001000_billing_profile_hardening.sql`
-- `20261030001100_financial_document_supplier_profiles.sql`
-- `20261030001200_financial_document_recipient_profiles.sql`
-- `20261030001300_financial_line_calculation.sql`
-- `20261030001400_sales_fulfillment.sql`
+Implemented areas:
 
-### pgTAP suites
+- organizations
+- customer/supplier parties + profiles
+- seller billing profiles
+- inventory references/movements
+- financial documents
+- sales fulfilment
+- customer payments
 
-- `001_foundation_structure.test.sql`
-- `002_tenant_inventory_security.test.sql`
-- `003_integrity_and_roles.test.sql`
-- `004_parties_security.test.sql`
-- `005_party_profiles_security.test.sql`
-- `006_party_archive_cascade.test.sql`
-- `007_financial_documents_security.test.sql` — 37 assertions
-- `008_organization_billing_profiles.test.sql` — 22 assertions
-- `009_sales_fulfillment.test.sql` — 19 assertions
+### Financial-document API
 
-The financial-document regression covers RLS, direct-write denial, legacy-RPC denial, seller/buyer profile snapshot derivation, PostgreSQL-calculated line/tax values, numbering, financial year, tax jurisdiction, totals, idempotent issue, immutable posting, cancellation, credit-note linkage, tenant isolation and auditability.
-
-## Implemented API
-
-`apps/api`
-
-- `GET /health`
-- verified bearer JWT on `/v1/*`
-- user-scoped Supabase client; normal requests do **not** use service-role credentials
-- request IDs + secure headers + restricted CORS
-- generic/non-leaking error responses
-
-### Organizations / parties / inventory
-
-- organization list/create
-- party search/create/update/archive
-- party profile address/tax-registration management
-- inventory movement posting
-
-### Seller billing profiles
-
-Mounted at `/v1/organization-billing-profiles`:
-
-- list active/archived seller profiles
-- create
-- update
-- archive
-
-Reads use RLS. Mutation permission is enforced in PostgreSQL as owner/admin only.
-
-### Financial documents
-
-Mounted under `/v1/financial-documents` through `src/worker.ts` so it inherits the existing global JWT middleware.
-
-- `GET /v1/financial-documents` — bounded tenant-scoped list with type/status filters
-- `GET /v1/financial-documents/:documentId` — header + lines + line taxes
-- `POST /v1/financial-documents` — creates draft from seller/customer/address/tax-registration IDs
-- `POST /v1/financial-documents/:documentId/lines` — adds/updates a draft line; server calculates taxable/tax values
+- `GET /v1/financial-documents`
+- `GET /v1/financial-documents/:documentId`
+- `POST /v1/financial-documents`
+- `POST /v1/financial-documents/:documentId/lines`
 - `POST /v1/financial-documents/:documentId/lines/:lineNumber/remove`
 - `POST /v1/financial-documents/:documentId/issue`
 - `POST /v1/financial-documents/:documentId/cancel`
 
-Writes use audited database RPCs. Reads use the user-scoped client and normal RLS. User input cannot provide arbitrary PostgREST filters or authoritative legal/tax snapshots.
+### Sales fulfilment API
 
-## Implemented shared contracts
+- fulfilment route calls the audited/idempotent database fulfilment RPC
+- inventory item references expose `base_uom`, `track_inventory` and active item identity
+- warehouse references remain tenant-scoped through RLS
 
-`packages/contracts`
+### Customer-payment API
 
-- Zod validation
-- exact decimal-string validation for money/quantity/tax values
-- organization + party/profile validation
-- GSTIN structural/state-code validation
-- seller billing-profile validation without client verification controls
-- financial document profile-ID validation
-- invoice line contracts exclude authoritative taxable values/tax amounts
-- bounded financial-document list/detail queries
-- enum validation for document status/type, supply type and tax components
+Mounted at `/v1/customer-payments`:
 
-## Implemented web
+- `GET /v1/customer-payments` — tenant/customer-scoped receipt list
+- `POST /v1/customer-payments` — record an immutable receipt
+- `POST /v1/customer-payments/:paymentId/allocations` — allocate an existing receipt
+- `GET /v1/customer-payments/invoice/:documentId/balance` — derived invoice payment balance/status
+- `POST /v1/customer-payments/invoice/:documentId/receipt` — atomically record and allocate a receipt to the invoice
 
-`apps/web`
+The atomic receipt endpoint is covered by API boundary validation and delegates transactionality to PostgreSQL.
 
-### Auth/application shell
+## Shared contracts
 
-- Supabase browser session handling
-- email/password sign-in
-- protected routes
-- bearer-token API client
-- responsive app shell
-- browser-safe env template
-- branding-ready CSS design tokens
+`packages/contracts` provides Zod validation for:
 
-### Organization context
+- exact decimal strings
+- organizations
+- parties/profiles
+- GSTIN structure/state matching
+- seller billing profiles
+- financial documents
+- invoice lines/taxes
+- sales fulfilment
+- customer receipts/allocations
+- atomic invoice receipt input
 
-- zero-organization onboarding flow
-- secure organization creation
-- active-organization provider/switcher
-- accessible-org validation
-- selected organization ID persisted only as non-secret UX state
+The public invoice-line contract does not accept authoritative legal/tax/item snapshots or calculated taxable/tax values.
 
-**Important:** organization selection does not bypass or replace RLS.
+## Web application
 
-### Party management
+### Routes
 
-- customer/supplier list/search/create/archive
-- party can hold both customer and supplier roles
-- address create/edit/archive with billing/shipping/registered flags
-- tax-registration create/edit/archive
-- GSTIN normalization + structural validation
-- visible verification state; no manual client-side “verify” control
-
-### Seller settings
-
-`/settings` now provides:
-
-- active seller profile list
-- create/edit/archive
-- default seller profile selection
-- GSTIN/state-code validation
-- verification-state display
-- explicit note that GSTIN editing resets verification
-
-Server/database permissions remain authoritative; UI visibility does not grant owner/admin rights.
+- `/login`
+- `/` — dashboard/onboarding
+- `/customers`
+- `/suppliers`
+- `/inventory` — still a placeholder UI
+- `/invoices`
+- `/payments`
+- `/settings`
 
 ### Invoice workspace
 
-`/invoices` now provides the first tax-invoice workflow:
+`/invoices` provides:
 
-- financial-document list
 - seller profile selection
-- customer selection
-- billing/shipping-address selection
-- optional customer GST registration selection
-- document date, series, supply type, place of supply, reverse charge and notes
-- draft creation using profile IDs only
-- draft detail with immutable snapshots returned by API
-- line entry: description, HSN/SAC, quantity, UOM, unit price, discount and GST rates
-- intra-State CGST/SGST or inter-State IGST inputs
-- server-calculated taxable/tax values returned after save
-- issue with an idempotency key
-- cancellation with a reason
-- no line editing after issue
+- customer + billing/shipping/GST selection
+- invoice date/series/supply/place-of-supply/reverse-charge/notes
+- draft creation from master-data IDs
+- inventory-item or service line entry
+- item UOM prefill from `base_uom`
+- HSN/SAC, quantity, unit price, discount and GST rate entry
+- PostgreSQL-calculated taxable/tax amounts
+- issue with idempotency key
+- cancellation with reason
+- immutable issued detail
+- warehouse fulfilment for stock-backed issued invoices
 
-The browser never sends authoritative taxable values or tax amounts. Invoice lines can now bind to active inventory items, preserving an item snapshot. Issued stock-backed invoices can be fulfilled from an active warehouse; the fulfilment posts all stock-backed lines atomically and is idempotent.
+### Payments workspace
 
-### Current routes
+`/payments` provides:
 
-- `/login`
-- `/`
-- `/customers`
-- `/suppliers`
-- `/inventory` — placeholder
-- `/invoices` — working first tax-invoice workspace
-- `/settings` — seller/legal billing profiles
+- issued tax-invoice list
+- selected invoice/customer detail
+- live invoice total / allocated / balance-due values
+- `unpaid` / `part_paid` / `paid` status
+- receipt date, amount, method, reference and notes
+- atomic “record and apply receipt” action
+- recent customer receipt list
 
-## Validation status
+Receipt/allocation transactionality remains in PostgreSQL, not the browser.
+
+### Other implemented web areas
+
+- Supabase auth/session handling
+- protected routes
+- tenant switcher
+- customer/supplier create/search/archive
+- party address/GST profile management
+- seller/legal profile settings
+- responsive shell and branding design tokens
+
+## CI / validation
 
 ### Database CI — GREEN
 
-- local Supabase stack
-- rebuild from migrations through `20261030001300`
-- DB lint
-- pgTAP tests 001–008
-- financial-document regression includes 37 assertions
-- seller billing-profile regression includes 22 assertions
-- clean shutdown
+Run `40975060189`:
 
-### Application validation — GREEN
+- Supabase startup: passed
+- complete migration rebuild through `20261030001700`: passed
+- schema lint: passed
+- pgTAP suites `001–012`: passed
+- clean shutdown: passed
 
-- Node 24.22.2 baseline
-- `npm ci`
-- lockfile drift protection in GitHub CI
-- strict TypeScript
-- contracts/API/web unit tests
-- Worker production build
-- React/Vite production build
-- current branch independently validated with locked install + typecheck + tests + builds after invoice-workspace integration
+### Application CI — GREEN
+
+Run `40975283477`:
+
+- Node 24 locked install (`npm ci`): passed
+- lockfile drift check: passed
+- strict TypeScript: passed
+- contracts/API/web unit tests: passed
+- Cloudflare Worker production build: passed
+- React/Vite production build: passed
 
 ### CI hardening
 
 - normal workflows use `contents: read`
-- GitHub Actions pinned to exact commit SHAs
-- temporary write-enabled maintenance workflows are removed immediately after use
+- GitHub Actions pinned to commit SHAs
 - Supabase CLI pinned to `2.122.0`
+- temporary write-enabled maintenance workflows are removed after use
 
-## GST / India decisions verified during invoice work
+## GST / India design notes
 
-- invoice serials are modeled as consecutive per financial year/series, with the generated serial capped at 16 characters
-- place of supply is retained because it determines intra-State versus inter-State tax treatment
-- issued documents snapshot legal/tax/address information; master-data edits must not rewrite historical invoices
-- credit/debit notes link to the original invoice rather than editing the issued invoice
-- e-invoice/IRP is intentionally a later integration layer, not embedded into the core financial-document tables
+- invoice numbers are consecutive per configured financial year/series and capped to the required serial length in the model
+- place of supply is persisted because it determines intra-State vs inter-State tax treatment
+- issued legal/tax/address/item identity is snapshotted and must not change with later master edits
+- credit/debit notes reference the original invoice rather than rewriting it
+- IRP/e-invoice/e-way-bill is a later integration layer, not embedded into the core ledger
 
-Regulatory integrations must be re-verified against official GST/IRP rules immediately before release. Current research also identified time-bound IRP reporting/cancellation rules for applicable taxpayers, so provider integration must enforce the then-current official limits rather than hard-code assumptions prematurely.
+Re-verify current GST/IRP rules against official sources immediately before production release; reporting/cancellation eligibility and time windows can change.
 
-## Security reference
+## Remaining V1 gaps
 
-See `docs/SECURITY_MODEL.md`.
+High priority:
 
-Production still requires browser E2E tests, security review, dependency review, concurrency/load tests, backup/restore drill, production secret management, MFA for privileged accounts, monitoring and alerting.
+1. **Inventory web workspace** — item/warehouse/balance/movement UX; database foundation already exists.
+2. **Payment corrections** — explicit reversal/refund workflow; never edit/delete receipts or allocations.
+3. **Sales returns / stock reversals** — return inventory movements and financial correction linkage.
+4. **Partial and multi-warehouse fulfilment** — current fulfilment is one full atomic posting.
+5. **PDF/print invoice generation** — render from immutable issued snapshots/totals.
+6. **Credit/debit note web workflow** — backend linkage exists; complete user-facing flow.
+7. **Purchase receipts / supplier-side stock intake UX**.
+8. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
+9. Browser E2E/Playwright coverage for critical flows.
+10. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
+
+## Next engineering task
+
+**Build the real Inventory workspace before adding more accounting surface.**
+
+Recommended next sequence:
+
+1. item master list/create/edit/archive
+2. warehouse list/create/edit/archive
+3. stock balance view by item/warehouse
+4. manual receipt/adjustment/transfer UI using existing secure ledger RPC
+5. inventory movement history with reference links
+6. tests for tenant isolation, invalid quantities, duplicate request keys and negative-stock UX
+
+After that: payment reversal + sales return workflow, PDF/print invoice output, then partial/multi-warehouse fulfilment.
 
 ## V1 scope
 
@@ -415,7 +405,6 @@ Production still requires browser E2E tests, security review, dependency review,
 - Organizations + memberships
 - Roles/permissions
 - Products/items + categories/units
-- Custom item fields
 - Warehouses
 - Stock ledger / adjustments / transfers
 - Customers
@@ -429,7 +418,7 @@ Production still requires browser E2E tests, security review, dependency review,
 - Audit log
 - CSV/Excel import/export
 
-Later: quotations/orders, returns, richer credit/debit-note workflows, serial/batch/expiry, barcode, GST e-invoice/e-way bill, messaging automation, approvals, POS, full accounting/GL, bank reconciliation, analytics, offline/PWA, public API/webhooks.
+Later: quotations/orders, advanced returns, serial/batch/expiry, barcode, GST e-invoice/e-way bill, messaging automation, approvals, POS, accounting/GL, bank reconciliation, analytics, offline/PWA and public API/webhooks.
 
 ## Customization rule
 
@@ -437,70 +426,8 @@ Later: quotations/orders, returns, richer credit/debit-note workflows, serial/ba
 
 Use relational columns for core/query-critical data; controlled JSON/metadata only for tenant-specific extensions.
 
-## Deployment direction
+## Security reference
 
-### Development / pilot
+See `docs/SECURITY_MODEL.md`.
 
-- Supabase free tier
-- Cloudflare Workers / Static Assets free allowances where suitable
-- Supabase Storage / R2 within free allowances
-
-### Before business-critical production
-
-- managed paid database/backups
-- production domain/email
-- secret manager
-- monitoring + alerting
-- restore drill
-- load/capacity validation
-
-## Known remaining gaps
-
-- Financial invoice issue and physical stock fulfilment are intentionally separate business events. V1 supports one full atomic fulfilment per issued tax invoice; partial fulfilment and returns/reversals are pending.
-- Invoice UI currently focuses on tax invoices; credit/debit-note backend exists but richer UI is pending.
-- Line entry is currently free-form item description/HSN rather than a full stock-item picker.
-- Draft header/profile selections are not yet editable after draft creation; create a new draft if the header is wrong.
-- GSTIN verification is structural only until a trusted verifier is integrated.
-- Place of supply remains explicit user input because GST place-of-supply rules can be transaction-specific.
-- Payments, PDF/print rendering, returns, purchase receipts, E2E tests and deployment are pending.
-- IRP/e-invoice integration is pending and must use then-current official applicability/reporting/cancellation rules.
-
-## NEXT TASK — RESUME HERE
-
-### Immediate
-
-1. Add **payments + allocations** against issued invoices with exact decimal arithmetic, tenant isolation, immutable payment history and over-allocation protection.
-2. Add invoice balance/status reads (unpaid/part-paid/paid) derived from allocations.
-3. Add payment API + invoice UI for recording and allocating receipts.
-4. Add PDF/print rendering from immutable issued snapshots.
-5. Add returns/stock-reversal workflow before allowing fulfilled invoices to be financially cancelled.
-6. Add partial fulfilment only after the full-fulfilment invariant is stable.
-7. Add Playwright E2E for organization -> customer -> seller profile -> draft -> stock line -> issue -> fulfil -> payment.
-8. Keep database and application gates green after every milestone.
-
-### After that
-
-9. Purchase receipts / supplier flow into stock.
-10. Returns and richer credit/debit-note workflows.
-11. Dashboard/reporting and CSV/Excel import/export.
-12. Wire React Static Assets + API into the intended Cloudflare production topology.
-13. Add production secrets, monitoring, backup/restore drills and load testing.
-14. Add GST e-invoice/IRP adapter only after current rules are re-verified.
-
-## README update policy
-
-Update after architecture/security decisions, major module completion, significant failures/fixes, deployment changes, before stopping substantial work, and when conversation context becomes large.
-
-Always update Current status, unresolved risks, important decisions and `NEXT TASK — RESUME HERE`.
-
-## Never commit
-
-- Supabase service-role keys
-- passwords/tokens
-- credential-bearing DB URLs
-- OAuth/SMTP/GST provider secrets
-- private signing keys
-- real production customer data
-- real `.env` / `.dev.vars` files
-
-Only commit safe templates such as `.env.example` / `.dev.vars.example`.
+Production still requires browser E2E tests, dependency/security review, concurrency/load tests, backup/restore validation, production secret management, privileged-account MFA, monitoring and alerting.
