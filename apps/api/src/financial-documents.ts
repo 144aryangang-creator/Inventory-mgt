@@ -165,7 +165,7 @@ financialDocumentRoutes.post('/:documentId/lines', async (c) => {
   if (!parsed.success) return validationResponse(c, parsed.error.issues)
 
   const input = parsed.data
-  const { data, error } = await c.get('supabase').rpc('upsert_financial_document_line', {
+  const { data, error } = await c.get('supabase').rpc('upsert_financial_document_line_calculated', {
     p_organization_id: input.organizationId,
     p_document_id: input.documentId,
     p_line_number: input.lineNumber,
@@ -173,7 +173,6 @@ financialDocumentRoutes.post('/:documentId/lines', async (c) => {
     p_quantity: input.quantity,
     p_uom: input.uom,
     p_unit_price: input.unitPrice,
-    p_taxable_value: input.taxableValue,
     p_item_id: input.itemId ?? null,
     p_item_snapshot: input.itemSnapshot,
     p_hsn_sac: input.hsnSac ?? null,
