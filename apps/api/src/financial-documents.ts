@@ -6,7 +6,7 @@ import {
   upsertFinancialDocumentLineSchema,
 } from '@inventory/contracts/financial-documents'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { Hono } from 'hono'
+import { Hono, type Context } from 'hono'
 
 type Env = {
   Bindings: {
@@ -23,7 +23,7 @@ type Env = {
 
 export const financialDocumentRoutes = new Hono<Env>()
 
-function validationResponse(c: Parameters<Parameters<typeof financialDocumentRoutes.post>[1]>[0], issues?: { path: PropertyKey[]; message: string }[]) {
+function validationResponse(c: Context<Env>, issues?: { path: PropertyKey[]; message: string }[]) {
   return c.json({
     error: 'validation_failed',
     ...(issues ? { issues: issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) } : {}),
