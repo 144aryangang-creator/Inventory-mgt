@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import app from './index'
+import app from './worker'
 
 const env = {
   APP_ORIGIN: 'http://localhost:5173',
@@ -21,6 +21,15 @@ describe('API security boundaries', () => {
 
   it('rejects protected API calls without a bearer token', async () => {
     const response = await app.request('/v1/organizations', {}, env)
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'unauthorized',
+    })
+  })
+
+  it('rejects mounted invoice API calls without a bearer token', async () => {
+    const response = await app.request('/v1/financial-documents', { method: 'POST' }, env)
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toMatchObject({
