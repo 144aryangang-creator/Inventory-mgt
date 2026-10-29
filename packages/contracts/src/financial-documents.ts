@@ -105,6 +105,7 @@ export const upsertFinancialDocumentLineSchema = z
       ctx.addIssue({ code: 'custom', path: ['taxes'], message: 'Each tax component may appear only once per line' })
     }
   })
+  .transform((value) => ({ ...value, itemSnapshot: {} as Record<string, unknown> }))
 export type UpsertFinancialDocumentLineInput = z.infer<typeof upsertFinancialDocumentLineSchema>
 
 export const removeFinancialDocumentLineSchema = z.object({
