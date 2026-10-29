@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./financial-documents": "./src/financial-documents.ts",
-    "./organization-billing": "./src/organization-billing.ts"
+    "./organization-billing": "./src/organization-billing.ts",
+    "./customer-payments": "./src/customer-payments.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
