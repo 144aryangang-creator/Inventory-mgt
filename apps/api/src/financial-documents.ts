@@ -1,7 +1,9 @@
 import {
   cancelFinancialDocumentSchema,
   createFinancialDocumentDraftSchema,
+  financialDocumentDetailQuerySchema,
   issueFinancialDocumentSchema,
+  listFinancialDocumentsQuerySchema,
   removeFinancialDocumentLineSchema,
   upsertFinancialDocumentLineSchema,
 } from '@inventory/contracts/financial-documents'
@@ -30,6 +32,92 @@ function validationResponse(c: Context<Env>, issues?: { path: PropertyKey[]; mes
     requestId: c.get('requestId'),
   }, 400)
 }
+
+financialDocumentRoutes.get('/', async (c) => {
+  const parsed = listFinancialDocumentsQuerySchema.safeParse({
+    organizationId: c.req.query('organizationId'),
+    documentType: c.req.query('documentType') || undefined,
+    status: c.req.query('status') || undefined,
+    limit: c.req.query('limit') || undefined,
+    offset: c.req.query('offset') || undefined,
+  })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  let query = c
+    .get('supabase')
+    .from('financial_documents')
+    .select('id,document_type,status,document_date,financial_year_start_year,series_code,document_number,recipient_party_id,linked_document_id,currency_code,supply_type,place_of_supply_state_code,reverse_charge,grand_total,issued_at,cancelled_at,created_at,updated_at')
+    .eq('organization_id', input.organizationId)
+    .order('document_date', { ascending: false })
+    .order('created_at', { ascending: false })
+    .range(input.offset, input.offset + input.limit - 1)
+
+  if (input.documentType) query = query.eq('document_type', input.documentType)
+  if (input.status) query = query.eq('status', input.status)
+
+  const { data, error } = await query
+  if (error) {
+    console.error('financial_document_list_failed', { requestId: c.get('requestId'), code: error.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ data, requestId: c.get('requestId') })
+})
+
+financialDocumentRoutes.get('/:documentId', async (c) => {
+  const parsed = financialDocumentDetailQuerySchema.safeParse({
+    organizationId: c.req.query('organizationId'),
+    documentId: c.req.param('documentId'),
+  })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const supabase = c.get('supabase')
+  const { data: document, error: documentError } = await supabase
+    .from('financial_documents')
+    .select('id,organization_id,document_type,status,document_date,financial_year_start_year,series_code,document_number,recipient_party_id,linked_document_id,currency_code,supply_type,supplier_state_code,place_of_supply_state_code,reverse_charge,supplier_snapshot,bill_to_snapshot,ship_to_snapshot,subtotal,discount_total,taxable_total,cgst_total,sgst_total,utgst_total,igst_total,cess_total,round_off,grand_total,notes,issued_at,cancelled_at,cancellation_reason,created_at,updated_at')
+    .eq('organization_id', input.organizationId)
+    .eq('id', input.documentId)
+    .maybeSingle()
+
+  if (documentError) {
+    console.error('financial_document_detail_failed', { requestId: c.get('requestId'), code: documentError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+  if (!document) return c.json({ error: 'document_not_found', requestId: c.get('requestId') }, 404)
+
+  const { data: lines, error: lineError } = await supabase
+    .from('financial_document_lines')
+    .select('id,line_number,item_id,item_snapshot,description,hsn_sac,quantity,uom,unit_price,discount_amount,taxable_value')
+    .eq('organization_id', input.organizationId)
+    .eq('document_id', input.documentId)
+    .order('line_number', { ascending: true })
+
+  if (lineError) {
+    console.error('financial_document_lines_read_failed', { requestId: c.get('requestId'), code: lineError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  const lineIds = (lines ?? []).map((line) => line.id as string)
+  let taxes: unknown[] = []
+  if (lineIds.length > 0) {
+    const { data: taxRows, error: taxError } = await supabase
+      .from('financial_document_line_taxes')
+      .select('line_id,component,rate,amount')
+      .eq('organization_id', input.organizationId)
+      .in('line_id', lineIds)
+      .order('component', { ascending: true })
+
+    if (taxError) {
+      console.error('financial_document_taxes_read_failed', { requestId: c.get('requestId'), code: taxError.code })
+      return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+    }
+    taxes = taxRows ?? []
+  }
+
+  return c.json({ data: { document, lines: lines ?? [], taxes }, requestId: c.get('requestId') })
+})
 
 financialDocumentRoutes.post('/', async (c) => {
   let body: unknown
