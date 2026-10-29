@@ -8,7 +8,8 @@
     "./financial-documents": "./src/financial-documents.ts",
     "./organization-billing": "./src/organization-billing.ts",
     "./sales-fulfillment": "./src/sales-fulfillment.ts",
-    "./customer-payments": "./src/customer-payments.ts"
+    "./customer-payments": "./src/customer-payments.ts",
+    "./inventory-workspace": "./src/inventory-workspace.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
