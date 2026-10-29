@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(35);
+select plan(37);
 
 select has_table('public', 'financial_documents', 'financial documents table exists');
 select has_table('public', 'financial_document_lines', 'financial document lines table exists');
@@ -211,6 +211,52 @@ select results_eq(
   'buyer legal, address, shipping and tax identity are derived from selected party profiles'
 );
 
+select throws_ok(
+  $$select public.upsert_financial_document_line(
+      'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+      (select id from public.financial_documents where notes = 'first invoice'),
+      1, 'Forged calculation', 1, 'EA', 1000, 1,
+      null, '{}'::jsonb, '8708', 0,
+      '[{"component":"CGST","rate":9,"amount":0.01}]'::jsonb
+    )$$,
+  '42501',
+  null,
+  'authenticated clients cannot call legacy line RPC with client-calculated taxable and tax amounts'
+);
+
+select lives_ok(
+  $$select public.upsert_financial_document_line_calculated(
+      'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
+      (select id from public.financial_documents where notes = 'first invoice'),
+      1, 'Tractor part', 1, 'EA', 1000,
+      null, '{"sku":"PART-1","name":"Tractor part"}'::jsonb, '8708', 0,
+      '[{"component":"CGST","rate":9},{"component":"SGST","rate":9}]'::jsonb
+    )$$,
+  'owner can add a draft line using server-side calculation'
+);
+
+select results_eq(
+  $$select count(*) from public.financial_document_line_taxes t
+    join public.financial_document_lines l on l.id = t.line_id and l.organization_id = t.organization_id
+    join public.financial_documents d on d.id = l.document_id and d.organization_id = l.organization_id
+    where d.notes = 'first invoice'$$,
+  array[2::bigint],
+  'line stores separate GST tax components'
+);
+
+select results_eq(
+  $$select l.taxable_value, sum(t.amount)
+    from public.financial_document_lines l
+    join public.financial_document_line_taxes t
+      on t.line_id = l.id and t.organization_id = l.organization_id
+    join public.financial_documents d
+      on d.id = l.document_id and d.organization_id = l.organization_id
+    where d.notes = 'first invoice'
+    group by l.taxable_value$$,
+  $$values (1000::numeric, 180::numeric)$$,
+  'PostgreSQL derives taxable value and tax amounts from quantity price discount and rates'
+);
+
 set local request.jwt.claim.sub = '30303030-3030-4030-8030-303030303030';
 
 select throws_ok(
@@ -239,26 +285,6 @@ select throws_ok(
   '42501',
   null,
   'Tenant A cannot create a document in Tenant B'
-);
-
-select lives_ok(
-  $$select public.upsert_financial_document_line(
-      'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
-      (select id from public.financial_documents where notes = 'first invoice'),
-      1, 'Tractor part', 1, 'EA', 1000, 1000,
-      null, '{"sku":"PART-1","name":"Tractor part"}'::jsonb, '8708', 0,
-      '[{"component":"CGST","rate":9,"amount":90},{"component":"SGST","rate":9,"amount":90}]'::jsonb
-    )$$,
-  'owner can add a draft line with CGST and SGST'
-);
-
-select results_eq(
-  $$select count(*) from public.financial_document_line_taxes t
-    join public.financial_document_lines l on l.id = t.line_id and l.organization_id = t.organization_id
-    join public.financial_documents d on d.id = l.document_id and d.organization_id = l.organization_id
-    where d.notes = 'first invoice'$$,
-  array[2::bigint],
-  'line stores separate GST tax components'
 );
 
 select results_eq(
@@ -305,12 +331,12 @@ select public.create_financial_document_draft_from_profiles(
   'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
   null, 'INR', '27', false, 'second invoice'
 );
-select public.upsert_financial_document_line(
+select public.upsert_financial_document_line_calculated(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
   (select id from public.financial_documents where notes = 'second invoice'),
-  1, 'Interstate goods', 2, 'EA', 500, 1000,
+  1, 'Interstate goods', 2, 'EA', 500,
   null, '{}'::jsonb, '8708', 0,
-  '[{"component":"IGST","rate":18,"amount":180}]'::jsonb
+  '[{"component":"IGST","rate":18}]'::jsonb
 );
 
 select results_eq(
@@ -333,12 +359,12 @@ select public.create_financial_document_draft_from_profiles(
   'aaaaaaaa-6060-4060-8060-aaaaaaaaaaaa',
   null, 'INR', '27', false, 'bad tax invoice'
 );
-select public.upsert_financial_document_line(
+select public.upsert_financial_document_line_calculated(
   'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
   (select id from public.financial_documents where notes = 'bad tax invoice'),
-  1, 'Bad interstate line', 1, 'EA', 100, 100,
+  1, 'Bad interstate line', 1, 'EA', 100,
   null, '{}'::jsonb, '8708', 0,
-  '[{"component":"CGST","rate":9,"amount":9}]'::jsonb
+  '[{"component":"CGST","rate":9}]'::jsonb
 );
 
 select throws_ok(
