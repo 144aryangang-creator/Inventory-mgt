@@ -1,0 +1,4 @@
+# Copy to apps/api/.dev.vars and fill with your local/hosted Supabase project values.
+# Never commit the real .dev.vars file.
+SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
+SUPABASE_PUBLISHABLE_KEY=sb_publishable_REPLACE_ME
