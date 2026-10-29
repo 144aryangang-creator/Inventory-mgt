@@ -44,7 +44,6 @@ export const financialDocumentTaxSchema = z.object({
     .string()
     .regex(ratePattern, 'Tax rate must be a decimal percentage with at most 4 decimal places')
     .refine((value) => Number(value) <= 100, 'Tax rate cannot exceed 100%'),
-  amount: nonNegativeDecimalSchema,
 })
 export type FinancialDocumentTaxInput = z.infer<typeof financialDocumentTaxSchema>
 
@@ -97,7 +96,6 @@ export const upsertFinancialDocumentLineSchema = z
     quantity: positiveDecimalSchema,
     uom: z.string().trim().min(1, 'Unit is required').max(20),
     unitPrice: nonNegativeDecimalSchema,
-    taxableValue: nonNegativeDecimalSchema,
     itemId: z.uuid().nullable().optional(),
     itemSnapshot: objectSnapshotSchema.default({}),
     hsnSac: optionalTrimmedText(16),
