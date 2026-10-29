@@ -117,7 +117,7 @@ select lives_ok(
 );
 
 select results_eq(
-  $$select amount, currency_code, method::text, reference from public.customer_payments where request_key = 'payment-one'$$,
+  $$select amount, currency_code::text, method::text, reference::text from public.customer_payments where request_key = 'payment-one'$$,
   $$values (1180::numeric, 'INR'::text, 'bank_transfer'::text, 'UTR-001'::text)$$,
   'payment values are normalized and stored exactly'
 );
