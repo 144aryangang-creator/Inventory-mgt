@@ -1,0 +1,22 @@
+{
+  "name": "@inventory/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run --outdir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@inventory/contracts": "*",
+    "@supabase/supabase-js": "2.118.0",
+    "hono": "4.13.14"
+  },
+  "devDependencies": {
+    "typescript": "7.0.2",
+    "vitest": "5.0.5",
+    "wrangler": "4.155.0"
+  }
+}
