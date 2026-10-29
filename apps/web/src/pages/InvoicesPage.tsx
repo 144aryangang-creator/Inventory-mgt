@@ -6,9 +6,17 @@ import {
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ApiError, apiFetch } from '../lib/api'
 import { useOrganization } from '../organizations/OrganizationProvider'
+import { InvoiceFulfillmentPanel } from '../invoices/InvoiceFulfillmentPanel'
 import { buildPartySearchPath, type Party } from '../parties/party'
 import { buildPartyProfilePath, type PartyProfile } from '../parties/profile'
 import '../invoices.css'
+
+type InventoryItem = {
+  id: string
+  sku: string
+  name: string
+  is_active: boolean
+}
 
 type SellerProfile = {
   id: string
@@ -102,6 +110,7 @@ type DraftForm = {
 }
 
 type LineForm = {
+  itemId: string
   description: string
   hsnSac: string
   quantity: string
@@ -123,7 +132,7 @@ function localIsoDate(): string {
 }
 
 const emptyLine: LineForm = {
-  description: '', hsnSac: '', quantity: '1', uom: 'EA', unitPrice: '', discountAmount: '0',
+  itemId: '', description: '', hsnSac: '', quantity: '1', uom: 'EA', unitPrice: '', discountAmount: '0',
   cgstRate: '9', sgstRate: '9', igstRate: '18', cessRate: '0',
 }
 
@@ -161,6 +170,7 @@ export function InvoicesPage() {
   const [documents, setDocuments] = useState<FinancialDocumentSummary[]>([])
   const [sellerProfiles, setSellerProfiles] = useState<SellerProfile[]>([])
   const [customers, setCustomers] = useState<Party[]>([])
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([])
   const [customerProfile, setCustomerProfile] = useState<PartyProfile | null>(null)
   const [detail, setDetail] = useState<FinancialDocumentDetail | null>(null)
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null)
@@ -185,14 +195,18 @@ export function InvoicesPage() {
 
   const loadReferences = useCallback(async () => {
     if (!activeOrganization) return
-    const [sellerResponse, customerResponse] = await Promise.all([
+    const [sellerResponse, customerResponse, itemResponse] = await Promise.all([
       apiFetch<ListResponse<SellerProfile>>(
         `/v1/organization-billing-profiles?organizationId=${encodeURIComponent(activeOrganization.id)}`,
       ),
       apiFetch<ListResponse<Party>>(buildPartySearchPath(activeOrganization.id, 'customer', '')),
+      apiFetch<ListResponse<InventoryItem>>(
+        `/v1/inventory/items?organizationId=${encodeURIComponent(activeOrganization.id)}&limit=100`,
+      ),
     ])
     setSellerProfiles(sellerResponse.data)
     setCustomers(customerResponse.data)
+    setInventoryItems(itemResponse.data)
     setDraft((current) => ({
       ...current,
       supplierProfileId: current.supplierProfileId || sellerResponse.data.find((profile) => profile.is_default)?.id || sellerResponse.data[0]?.id || '',
@@ -334,10 +348,13 @@ export function InvoicesPage() {
     }
     if (line.cessRate !== '0') taxes.push({ component: 'CESS', rate: line.cessRate })
 
+    const selectedItem = inventoryItems.find((item) => item.id === line.itemId)
     const parsed = upsertFinancialDocumentLineSchema.safeParse({
       organizationId: activeOrganization.id,
       documentId: detail.document.id,
       lineNumber: nextLineNumber,
+      itemId: selectedItem?.id,
+      itemSnapshot: selectedItem ? { sku: selectedItem.sku, name: selectedItem.name } : {},
       description: line.description,
       quantity: line.quantity,
       uom: line.uom,
@@ -524,6 +541,16 @@ export function InvoicesPage() {
                 <div><span>Total</span><strong>{detail.document.currency_code} {String(detail.document.grand_total)}</strong></div>
               </div>
 
+              <InvoiceFulfillmentPanel
+                organizationId={activeOrganization.id}
+                documentId={detail.document.id}
+                documentStatus={detail.document.status}
+                hasStockLines={detail.lines.some((documentLine) => Boolean(documentLine.item_id))}
+                onChanged={async () => {
+                  await Promise.all([loadDocuments(), loadDetail(detail.document.id)])
+                }}
+              />
+
               <div className="invoice-lines">
                 {detail.lines.length === 0 ? <p className="empty-state">No lines yet.</p> : detail.lines.map((documentLine) => (
                   <article className="invoice-line-row" key={documentLine.id}>
@@ -537,6 +564,14 @@ export function InvoicesPage() {
               {detail.document.status === 'draft' ? (
                 <form className="invoice-line-form" onSubmit={addLine}>
                   <h3>Add line {nextLineNumber}</h3>
+                  <label>Inventory item<select value={line.itemId} onChange={(e) => {
+                    const itemId = e.target.value
+                    const selectedItem = inventoryItems.find((item) => item.id === itemId)
+                    setLine({ ...line, itemId, description: line.description || selectedItem?.name || '' })
+                  }}>
+                    <option value="">Non-stock / service line</option>
+                    {inventoryItems.map((item) => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}
+                  </select></label>
                   <label className="invoice-full-field">Description<input required maxLength={500} value={line.description} onChange={(e) => setLine({ ...line, description: e.target.value })} /></label>
                   <label>HSN/SAC<input maxLength={16} value={line.hsnSac} onChange={(e) => setLine({ ...line, hsnSac: e.target.value })} /></label>
                   <label>Quantity<input inputMode="decimal" required value={line.quantity} onChange={(e) => setLine({ ...line, quantity: e.target.value })} /></label>

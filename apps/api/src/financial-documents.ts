@@ -265,6 +265,7 @@ financialDocumentRoutes.post('/:documentId/cancel', async (c) => {
     if (error.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
     if (error.code === 'P0002') return c.json({ error: 'issued_document_not_found', requestId: c.get('requestId') }, 404)
     if (error.code === '22023') return c.json({ error: 'invalid_cancellation', requestId: c.get('requestId') }, 400)
+    if (error.code === '23514') return c.json({ error: 'fulfilled_invoice_requires_stock_reversal', requestId: c.get('requestId') }, 409)
     return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
   }
 
