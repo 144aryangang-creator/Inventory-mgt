@@ -2,59 +2,258 @@
 
 Configurable multi-tenant inventory + invoicing SaaS designed to start on free/low-cost infrastructure and scale without rewriting the core.
 
-## PROJECT HANDOFF — READ THIS FIRST
+> **Project handoff:** Read this file first when resuming work. Keep it updated after major milestones, architecture/security changes, failures that affect design, and before ending substantial sessions.
 
-Use this README as the persistent project memory / resume point.
-
-### Current status
+## Current status
 
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
-- Project stage: architecture + production foundation
-- UI implementation: not started
-- Database implementation: next
+- Project stage: **database + API foundation**
+- Database foundation: **implemented and CI-green**
+- Tenant/RLS security: **implemented and adversarially tested**
+- Inventory ledger: **implemented and tested**
+- Shared TypeScript validation: **implemented**
+- Cloudflare Worker API foundation: **implemented**
+- Application CI: **second verification run in progress after adding API tests**
+- Web UI: not started
 - Production deployment: not started
+- Secrets/production credentials: not committed
 
-### User requirements
+## User requirements
 
 - Complete inventory management + invoicing solution
-- Must be customizable to different businesses/users
+- Customizable for different businesses without forking the codebase per customer
 - Start as close to free as practical
-- Architecture must have a clear path to large scale
-- Production-grade security and testing required
+- Clear path to large scale
+- Production-grade security and testing
 - Research current best practices before important architecture decisions
-- Prefer concise pointers/checklists rather than long explanations
-- Keep this README updated as the project evolves so work can resume from here
+- Use concise pointers/checklists instead of long prose
+- Keep this README as persistent project memory / resume point
 
-### Architecture decisions already made
+## Architecture decisions locked in
 
-- Product model: multi-tenant SaaS
-- Initial architecture: modular monolith
-- Frontend: React + TypeScript
-- API/application layer: TypeScript + Cloudflare Workers
-- Database/Auth: Supabase PostgreSQL + Supabase Auth
-- Tenant isolation: PostgreSQL Row Level Security (RLS)
-- File/archive storage: Supabase Storage initially; Cloudflare R2 where useful
-- CI/CD: GitHub Actions
-- Database/source-of-truth approach: PostgreSQL
-- Inventory source of truth: immutable stock movement ledger
-- Money/taxes: exact decimal database types; never floating point
-- Posted financial/inventory documents: immutable; corrections through reversal/credit/return flows
-- Historical invoices: store customer/item/tax snapshots so old invoices never change when master data changes
-- Scaling strategy: keep modular monolith until measured scale justifies service extraction
+| Area | Decision |
+|---|---|
+| Product | Multi-tenant SaaS |
+| Initial architecture | Modular monolith |
+| Frontend | React + TypeScript (not yet scaffolded) |
+| API | Hono + TypeScript on Cloudflare Workers |
+| Database/Auth | Supabase PostgreSQL + Supabase Auth |
+| Tenant isolation | PostgreSQL Row Level Security |
+| Authorization | RLS + organization roles |
+| Inventory source of truth | Immutable stock movement ledger |
+| Stock balance | Transactional cache protected by row locking |
+| Money/quantities | PostgreSQL `numeric`; decimal strings in JS/TS boundaries |
+| Storage | Supabase Storage initially; Cloudflare R2 where useful |
+| CI/CD | GitHub Actions |
+| Runtime baseline | Node 24.22.2 LTS |
+| Scaling | Modular monolith first; split services only when metrics justify it |
 
-### Critical invariants
+## Critical invariants
 
-1. Every tenant-owned business record carries an `organization_id` or equivalent tenant relationship.
-2. Tenant isolation must be enforced in PostgreSQL RLS, not only application filters.
-3. Inventory balances must be derived from / reconcilable to an immutable movement ledger.
-4. Inventory posting must use database transactions and concurrency protection.
-5. Financial values use exact decimal/numeric types.
-6. Posted invoices and stock documents are never silently edited.
-7. Critical mutations create audit events.
-8. Mutating APIs should support idempotency to prevent duplicate invoices/payments/stock movements.
-9. Secrets and production credentials must never be committed to Git.
-10. Schema changes must be version-controlled migrations.
+1. Every tenant-owned business record has an `organization_id` or equivalent tenant relationship.
+2. Tenant isolation is enforced in PostgreSQL RLS, not only application code.
+3. `organization_id` cannot be silently changed to move records across tenants.
+4. Inventory movements are append-only.
+5. Stock corrections use new reversing/correcting movements.
+6. Stock posting uses a database transaction and row lock.
+7. Negative inventory is rejected unless the organization explicitly allows it.
+8. Mutating operations support idempotency where duplicate requests are dangerous.
+9. Money/tax/quantity calculations never rely on binary floating-point arithmetic.
+10. Posted financial documents will be immutable; corrections use credit/debit/cancellation flows.
+11. Critical mutations create append-only audit events.
+12. Secrets and production customer data never enter Git.
+13. Schema changes use version-controlled migrations.
+
+## Implemented database foundation
+
+### Tables
+
+- `organizations`
+- `organization_memberships`
+- `items`
+- `warehouses`
+- `inventory_balances`
+- `inventory_movements`
+- `audit_events`
+
+### Database security / behavior
+
+- RLS enabled on all client-facing foundation tables
+- Role baseline: `owner`, `admin`, `staff`, `viewer`
+- Membership status: active/suspended
+- RLS helper functions use `SECURITY DEFINER` with fixed `search_path`
+- `organization_id` reassignment blocked on items/warehouses
+- Direct client writes to inventory ledger blocked
+- Inventory ledger update/delete blocked by trigger
+- Audit update/delete blocked by trigger
+- Composite foreign keys prevent item/warehouse cross-tenant mismatches
+- Idempotency key unique per organization
+- Stock balance row locked during posting
+- Overselling blocked by default
+
+### Secure database RPCs
+
+- `create_organization(...)`
+  - authenticated user creates tenant + owner membership atomically
+  - audit event written
+- `post_inventory_movement(...)`
+  - owner/admin/staff only
+  - validates tenant/item/warehouse
+  - handles idempotent retries
+  - locks stock balance
+  - prevents invalid negative stock
+  - writes ledger + balance + audit atomically
+
+### Migrations
+
+- `supabase/migrations/20261030000100_foundation.sql`
+- `supabase/migrations/20261030000200_tenant_hardening.sql`
+
+## Database tests
+
+- `001_foundation_structure.test.sql`
+- `002_tenant_inventory_security.test.sql`
+- `003_integrity_and_roles.test.sql`
+
+Coverage includes:
+
+- RLS enabled
+- required indexes
+- Tenant A cannot see Tenant B
+- cross-tenant insert blocked
+- direct ledger insert blocked
+- authorized receipt/sale works
+- balance updates correctly
+- overselling rejected
+- failed oversell creates no ledger row
+- idempotent retry creates no duplicate
+- ledger is immutable
+- multi-org user cannot move rows between tenants
+- viewer cannot post inventory
+- viewer cannot read admin audit events
+
+### Database CI result
+
+**GREEN** on GitHub Actions:
+
+- local Supabase startup
+- database rebuild from migrations
+- `supabase db lint`
+- pgTAP suites
+- shutdown/cleanup
+
+Supabase CLI is pinned to `2.122.0` in CI.
+
+## Application foundation
+
+### Workspace
+
+```text
+apps/
+  api/
+packages/
+  contracts/
+supabase/
+  migrations/
+  tests/
+docs/
+.github/workflows/
+```
+
+### Shared contracts
+
+`packages/contracts` uses Zod for boundary validation.
+
+Inventory quantities/costs cross the JS boundary as decimal strings:
+
+- max 6 decimal places
+- inbound quantities must be positive
+- outbound quantities must be negative
+- zero rejected
+- unit cost non-negative
+- UUID/request-key validation
+
+This avoids silently converting exact PostgreSQL numerics through JavaScript floating-point arithmetic.
+
+### Worker API
+
+`apps/api` currently provides:
+
+- `GET /health`
+- protected `/v1/*` middleware
+- verified Supabase JWT via `getClaims`
+- user-scoped Supabase client so RLS remains authoritative
+- `GET /v1/me`
+- `GET /v1/organizations`
+- `POST /v1/inventory/movements`
+- request IDs
+- secure headers
+- restricted CORS
+- generic/non-leaking client errors
+- database error mapping for stock/permission/idempotency conflicts
+
+**Important:** Normal business requests do **not** use a Supabase service-role key.
+
+## Application testing status
+
+### First Application CI run
+
+- dependency install: passed
+- TypeScript: passed
+- contracts tests: **5/5 passed**
+- API workspace: failed because it had no test files
+- build skipped because CI correctly stopped on test failure
+
+### Fix applied
+
+Added API tests for:
+
+- public health endpoint
+- missing bearer token rejection
+- empty bearer token rejection
+- generic 404 response
+
+Second Application CI run is currently validating the fix.
+
+## CI workflows
+
+- `.github/workflows/database-ci.yml`
+- `.github/workflows/app-ci.yml`
+
+Current app CI sequence:
+
+1. Node 24.22.2
+2. install dependencies
+3. typecheck
+4. unit tests
+5. Worker dry-run build
+6. temporarily upload generated `package-lock.json`
+
+After the first fully-green app run:
+
+- download generated lockfile
+- commit `package-lock.json`
+- replace `npm install` with `npm ci`
+- rerun CI to verify reproducible installs
+
+## Security model
+
+See `docs/SECURITY_MODEL.md`.
+
+Release gates include:
+
+- DB CI green
+- RLS/adversarial tests green
+- TypeScript/unit/API tests green
+- browser E2E green
+- OWASP ZAP scan reviewed
+- dependency/security scan reviewed
+- load/concurrency tests green
+- backup + restore drill completed
+- production secrets outside Git
+- MFA for privileged production access
+- monitoring/alerting configured
 
 ## Product scope
 
@@ -62,15 +261,13 @@ Use this README as the persistent project memory / resume point.
 
 - Authentication
 - Organizations / tenants
-- Users
-- Roles + permissions
+- Users + roles/permissions
 - Products/items
 - Categories / units
 - Custom item fields
 - Warehouses
 - Inventory ledger
-- Stock adjustments
-- Stock transfers
+- Stock adjustments/transfers
 - Customers
 - Suppliers
 - Purchase receipts
@@ -78,194 +275,54 @@ Use this README as the persistent project memory / resume point.
 - Payments
 - GST/tax configuration
 - PDF/print invoices
-- Basic dashboard
-- Reports
+- Dashboard + reports
 - Audit log
 - CSV/Excel import/export
 
-### Later modules
+### Later
 
-- Quotations
-- Sales orders
-- Purchase orders
-- Returns
-- Credit/debit notes
+- Quotations / sales orders / purchase orders
+- Returns / credit notes / debit notes
 - Serial number tracking
 - Batch/expiry tracking
 - Barcode workflows
-- GST e-invoicing / IRP integration
-- E-way bill integration
+- GST e-invoicing / IRP
+- E-way bill
 - Email/WhatsApp/SMS automation
 - Approval workflows
 - POS
-- General ledger/accounting
+- Full accounting / general ledger
 - Bank reconciliation
 - Advanced analytics
-- Offline/PWA workflows
+- Offline/PWA
 - Public API + webhooks
 
-## Customization model
+## Customization rule
 
-Do NOT fork code per customer.
+**Do not fork code per customer.**
 
 Use configuration for:
 
 - custom fields
 - required/optional fields
-- field types
-- dropdown options
+- field types and dropdowns
 - validation rules
-- invoice templates
 - branding
+- invoice/document templates
 - numbering schemes
 - role permissions
 - enabled modules
 - workflows/automations later
 
-Prefer normal relational columns for core/query-critical fields and controlled JSON/metadata only for tenant-specific extensions.
-
-## Planned stack
-
-| Layer | Choice |
-|---|---|
-| Frontend | React + TypeScript |
-| API | TypeScript on Cloudflare Workers |
-| Database | PostgreSQL / Supabase |
-| Authentication | Supabase Auth |
-| Authorization | RBAC + PostgreSQL RLS |
-| Storage | Supabase Storage / Cloudflare R2 |
-| CI/CD | GitHub Actions |
-| DB tests | pgTAP |
-| Unit tests | Vitest |
-| Browser E2E | Playwright |
-| Load tests | k6 |
-| Security testing | OWASP ZAP + OWASP ASVS checklist |
-
-## Target repository layout
-
-```text
-app/
-modules/
-supabase/
-  migrations/
-  seed.sql
-  tests/
-tests/
-  unit/
-  integration/
-  security/
-  e2e/
-docs/
-.github/
-  workflows/
-```
-
-## Database domains planned
-
-- `organizations`
-- `organization_members`
-- `roles`
-- `permissions`
-- `branches`
-- `customers`
-- `suppliers`
-- `items`
-- `item_variants`
-- `item_units`
-- `price_lists`
-- `tax_codes`
-- `warehouses`
-- `warehouse_locations`
-- `inventory_movements`
-- `inventory_balances`
-- `inventory_reservations`
-- `serial_numbers`
-- `batches`
-- `quotations`
-- `quotation_lines`
-- `sales_orders`
-- `sales_order_lines`
-- `invoices`
-- `invoice_lines`
-- `credit_notes`
-- `credit_note_lines`
-- `payments`
-- `payment_allocations`
-- `purchase_orders`
-- `purchase_order_lines`
-- `goods_receipts`
-- `goods_receipt_lines`
-- `custom_field_definitions`
-- `custom_views`
-- `document_templates`
-- `number_sequences`
-- `audit_events`
-- `outbox_events`
-- `idempotency_keys`
-
-## Security baseline
-
-- PostgreSQL RLS on tenant-owned tables
-- RBAC for business permissions
-- Server-side validation for all writes
-- Least-privilege database/API access
-- MFA support for privileged accounts
-- Secure session handling
-- Rate limiting
-- Input validation + output encoding
-- CSP/XSS/CSRF protections where applicable
-- File type/size/access validation
-- Immutable audit trail for sensitive operations
-- Dependency/security scanning in CI
-- Explicit adversarial tenant-isolation tests
-- Backup + restore testing before production
-
-## Mandatory security tests
-
-Examples that must fail:
-
-- Organization A reads Organization B customer
-- Organization A updates Organization B invoice
-- Organization A downloads Organization B attachment
-- guessed UUID bypasses tenant isolation
-- non-admin performs admin-only action
-
-Inventory concurrency test:
-
-- If only 1 item is available and two users simultaneously post sales, only one may succeed when negative stock is disabled.
-
-## Deployment strategy
-
-### Pilot / development
-
-- Cloudflare Workers free tier where suitable
-- Supabase free tier for development/pilot
-- R2/Supabase Storage within free allowances
-
-### Production business use
-
-Move to paid managed infrastructure before relying on the app for critical business operations.
-
-Expected progression:
-
-1. Free development/pilot
-2. Supabase Pro / suitable managed PostgreSQL
-3. Paid Cloudflare Workers as traffic grows
-4. Monitoring + automated backups
-5. Connection pooling / indexing / queues
-6. Replicas/partitioning only when measurements justify them
-7. Service extraction only when a module genuinely needs independent scaling
+Use normal relational columns for core/query-critical data; controlled JSON/metadata only for tenant-specific extensions.
 
 ## India / GST direction
 
-Architecture should support:
+Architecture must support:
 
 - GSTIN
 - HSN/SAC
-- CGST
-- SGST
-- IGST
-- Cess
+- CGST / SGST / IGST / Cess
 - Place of Supply
 - Reverse Charge
 - B2B/B2C
@@ -274,75 +331,69 @@ Architecture should support:
 - financial-year invoice numbering
 - future IRN/acknowledgement/QR/e-invoice integration
 
-Actual regulatory integrations and compliance assumptions must be re-verified against current official sources before production releases.
+Re-verify current official regulatory requirements immediately before implementing/releasing regulatory integrations.
 
-## Development order
+## Deployment strategy
 
-1. Tenant/organization schema
-2. RLS policies + tenant-isolation tests
-3. Roles/permissions
-4. Products + units/categories
-5. Warehouses
-6. Immutable inventory ledger
-7. Customers + suppliers
-8. Invoicing
-9. Payments
-10. GST/tax engine
-11. Reporting
-12. Customization engine
-13. Production hardening
+### Development / pilot
+
+- Supabase free tier
+- Cloudflare Workers free tier where suitable
+- Supabase Storage / R2 within free allowances
+
+### Before business-critical production
+
+Move to paid managed infrastructure with:
+
+- managed database/backups
+- monitoring + alerting
+- production email/domain configuration
+- restore drills
+- production secret management
+- capacity/load validation
+
+Scale progressively with indexes, pooling, queues, caching, replicas/partitioning only when measurements require them.
 
 ## NEXT TASK — RESUME HERE
 
-Build the database foundation on branch `foundation/bootstrap`:
+1. Wait for / inspect the second Application CI run.
+2. If it fails, fix the exact failing type/test/build step; do not bypass the check.
+3. If green, download and commit the generated `package-lock.json`.
+4. Change Application CI from `npm install` to `npm ci` and rerun until green.
+5. Then scaffold the React web app + Supabase authentication shell.
+6. After auth shell is stable, implement the next DB domain: customers/suppliers, followed by invoicing/tax design.
 
-- create initial Supabase/PostgreSQL migration
-- organizations
-- organization membership
-- roles/permissions baseline
-- warehouses
-- items
-- immutable inventory movements
-- audit events
-- idempotency keys
-- helper functions for tenant membership
-- enable RLS
-- write initial pgTAP/adversarial tenant-isolation tests
-- add CI workflow to run database/security checks
+Do not start broad UI feature work until the application CI is green and the lockfile is committed.
 
-Do not start broad UI development until tenant isolation and ledger invariants are tested.
+## README update policy
 
-## Handoff/update policy
+Update this file when:
 
-Update this README whenever any of these occurs:
-
-- an architecture decision changes
-- a major feature is completed
-- database schema changes materially
+- architecture/security decisions change
+- a major module is completed
+- schema changes materially
+- a significant test failure reveals a design issue
 - deployment approach changes
-- security assumptions change
-- a significant bug/constraint is discovered
-- work is about to stop after substantial progress
-- conversation/context is becoming very large
+- work is about to stop
+- conversation context is becoming large
 
-Before ending a substantial build session, update at minimum:
+Before ending a substantial session, update at minimum:
 
-- `Current status`
+- Current status
 - completed work
 - unresolved issues
 - important decisions
 - `NEXT TASK — RESUME HERE`
 
-## Security rule
+## Never commit
 
-**Never commit:**
-
-- service-role keys
-- API secrets
+- Supabase service-role keys
+- API secrets/tokens
 - passwords
-- production database URLs containing credentials
+- credential-bearing production DB URLs
+- OAuth/SMTP/GST provider secrets
 - private signing keys
-- customer production data
-- `.env` files containing secrets
+- production customer data
+- real `.env` / `.dev.vars` files
 
-Use environment variables / secret stores and commit only safe examples such as `.env.example`.
+Commit only safe templates such as `.env.example` / `.dev.vars.example`.
