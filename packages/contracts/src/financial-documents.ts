@@ -6,8 +6,6 @@ const ratePattern = /^\d{1,3}(?:\.\d{1,4})?$/
 const seriesPattern = /^[A-Za-z0-9][A-Za-z0-9-]{0,7}$/
 const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/
 
-const objectSnapshotSchema = z.record(z.string(), z.unknown())
-
 function optionalTrimmedText(max: number) {
   return z
     .string()
@@ -97,7 +95,6 @@ export const upsertFinancialDocumentLineSchema = z
     uom: z.string().trim().min(1, 'Unit is required').max(20),
     unitPrice: nonNegativeDecimalSchema,
     itemId: z.uuid().nullable().optional(),
-    itemSnapshot: objectSnapshotSchema.default({}),
     hsnSac: optionalTrimmedText(16),
     discountAmount: nonNegativeDecimalSchema.default('0'),
     taxes: z.array(financialDocumentTaxSchema).max(5).default([]),
