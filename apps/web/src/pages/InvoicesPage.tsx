@@ -15,6 +15,8 @@ type InventoryItem = {
   id: string
   sku: string
   name: string
+  base_uom: string
+  track_inventory: boolean
   is_active: boolean
 }
 
@@ -51,6 +53,7 @@ type FinancialDocumentSummary = {
 type FinancialDocumentLine = {
   id: string
   line_number: number
+  item_id: string | null
   description: string
   hsn_sac: string | null
   quantity: string | number
@@ -354,7 +357,6 @@ export function InvoicesPage() {
       documentId: detail.document.id,
       lineNumber: nextLineNumber,
       itemId: selectedItem?.id,
-      itemSnapshot: selectedItem ? { sku: selectedItem.sku, name: selectedItem.name } : {},
       description: line.description,
       quantity: line.quantity,
       uom: line.uom,
@@ -567,7 +569,12 @@ export function InvoicesPage() {
                   <label>Inventory item<select value={line.itemId} onChange={(e) => {
                     const itemId = e.target.value
                     const selectedItem = inventoryItems.find((item) => item.id === itemId)
-                    setLine({ ...line, itemId, description: line.description || selectedItem?.name || '' })
+                    setLine({
+                      ...line,
+                      itemId,
+                      description: line.description || selectedItem?.name || '',
+                      uom: selectedItem?.base_uom ?? line.uom,
+                    })
                   }}>
                     <option value="">Non-stock / service line</option>
                     {inventoryItems.map((item) => <option key={item.id} value={item.id}>{item.sku} · {item.name}</option>)}
