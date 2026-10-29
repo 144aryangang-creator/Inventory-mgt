@@ -3,6 +3,7 @@ import {
   createCustomerPaymentSchema,
   invoicePaymentBalanceQuerySchema,
   listCustomerPaymentsQuerySchema,
+  recordAndAllocateInvoicePaymentSchema,
 } from '@inventory/contracts/customer-payments'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { Hono, type Context } from 'hono'
@@ -119,6 +120,49 @@ customerPaymentRoutes.post('/:paymentId/allocations', async (c) => {
   }
 
   return c.json({ allocationId: data, requestId: c.get('requestId') }, 201)
+})
+
+customerPaymentRoutes.post('/invoice/:documentId/receipt', async (c) => {
+  let body: unknown
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return validationResponse(c)
+
+  const parsed = recordAndAllocateInvoicePaymentSchema.safeParse({
+    ...body,
+    documentId: c.req.param('documentId'),
+  })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const { data, error } = await c.get('supabase').rpc('record_and_allocate_invoice_payment', {
+    p_organization_id: input.organizationId,
+    p_customer_party_id: input.customerPartyId,
+    p_financial_document_id: input.documentId,
+    p_payment_date: input.paymentDate,
+    p_amount: input.amount,
+    p_currency_code: input.currencyCode,
+    p_method: input.method,
+    p_payment_request_key: input.paymentRequestKey,
+    p_allocation_request_key: input.allocationRequestKey,
+    p_reference: input.reference ?? null,
+    p_notes: input.notes ?? null,
+  })
+
+  if (error) {
+    console.error('invoice_payment_receipt_failed', { requestId: c.get('requestId'), code: error.code })
+    if (error.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    if (error.code === '23503' || error.code === 'P0002') return c.json({ error: 'payment_or_invoice_not_found', requestId: c.get('requestId') }, 404)
+    if (error.code === '22023') return c.json({ error: 'payment_idempotency_conflict', requestId: c.get('requestId') }, 409)
+    if (error.code === '23514') return c.json({ error: 'allocation_not_allowed', requestId: c.get('requestId') }, 409)
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  const row = Array.isArray(data) ? data[0] ?? null : data
+  return c.json({
+    paymentId: row?.payment_id ?? null,
+    allocationId: row?.allocation_id ?? null,
+    requestId: c.get('requestId'),
+  }, 201)
 })
 
 customerPaymentRoutes.get('/invoice/:documentId/balance', async (c) => {
