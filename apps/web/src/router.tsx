@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { LoginPage } from './pages/LoginPage'
 import { PartyPage } from './pages/PartyPage'
 import { PlaceholderPage } from './pages/PlaceholderPage'
+import { SettingsPage } from './pages/SettingsPage'
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -19,7 +20,7 @@ export const router = createBrowserRouter([
           { path: '/suppliers', element: <PartyPage role="supplier" title="Suppliers" singular="Supplier" /> },
           { path: '/inventory', element: <PlaceholderPage title="Inventory" description="Stock balances, movements, transfers and adjustments." /> },
           { path: '/invoices', element: <PlaceholderPage title="Invoices" description="Sales invoices, payments and immutable financial documents." /> },
-          { path: '/settings', element: <PlaceholderPage title="Settings" description="Organization configuration, roles and customization." /> },
+          { path: '/settings', element: <SettingsPage /> },
         ],
       },
     ],
