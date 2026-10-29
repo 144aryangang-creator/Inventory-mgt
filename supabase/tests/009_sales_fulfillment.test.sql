@@ -91,7 +91,7 @@ select public.post_inventory_movement(
 );
 
 select results_eq(
-  $$select quantity from public.inventory_balances
+  $$select quantity_on_hand from public.inventory_balances
     where organization_id = '73737373-7373-4373-8373-737373737373'
       and item_id = '74747474-7474-4474-8474-747474747474'
       and warehouse_id = '75757575-7575-4575-8575-757575757575'$$,
@@ -135,7 +135,7 @@ select lives_ok(
 );
 
 select results_eq(
-  $$select quantity from public.inventory_balances
+  $$select quantity_on_hand from public.inventory_balances
     where organization_id = '73737373-7373-4373-8373-737373737373'
       and item_id = '74747474-7474-4474-8474-747474747474'
       and warehouse_id = '75757575-7575-4575-8575-757575757575'$$,
@@ -266,7 +266,7 @@ select results_eq(
 );
 
 select results_eq(
-  $$select quantity from public.inventory_balances
+  $$select quantity_on_hand from public.inventory_balances
     where organization_id = '73737373-7373-4373-8373-737373737373'
       and item_id = '74747474-7474-4474-8474-747474747474'
       and warehouse_id = '75757575-7575-4575-8575-757575757575'$$,
