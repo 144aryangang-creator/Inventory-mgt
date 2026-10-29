@@ -22,6 +22,7 @@ Configurable multi-tenant inventory + invoicing SaaS. Start on free/low-cost inf
 - Financial document API list/detail/create/line/issue/cancel: **implemented + application validation green**
 - Seller settings page: **implemented**
 - First tax-invoice web workspace: **implemented**
+- Atomic full sales-invoice stock fulfilment: **implemented + CI green**
 - Reproducible npm lockfile: **committed; CI uses `npm ci`**
 - Production deployment: not started
 - Real production credentials: not configured or committed
@@ -213,6 +214,7 @@ Deprecated authenticated paths intentionally revoked:
 - `20261030001100_financial_document_supplier_profiles.sql`
 - `20261030001200_financial_document_recipient_profiles.sql`
 - `20261030001300_financial_line_calculation.sql`
+- `20261030001400_sales_fulfillment.sql`
 
 ### pgTAP suites
 
@@ -224,6 +226,7 @@ Deprecated authenticated paths intentionally revoked:
 - `006_party_archive_cascade.test.sql`
 - `007_financial_documents_security.test.sql` — 37 assertions
 - `008_organization_billing_profiles.test.sql` — 22 assertions
+- `009_sales_fulfillment.test.sql` — 19 assertions
 
 The financial-document regression covers RLS, direct-write denial, legacy-RPC denial, seller/buyer profile snapshot derivation, PostgreSQL-calculated line/tax values, numbering, financial year, tax jurisdiction, totals, idempotent issue, immutable posting, cancellation, credit-note linkage, tenant isolation and auditability.
 
@@ -348,7 +351,7 @@ Server/database permissions remain authoritative; UI visibility does not grant o
 - cancellation with a reason
 - no line editing after issue
 
-The browser never sends authoritative taxable values or tax amounts.
+The browser never sends authoritative taxable values or tax amounts. Invoice lines can now bind to active inventory items, preserving an item snapshot. Issued stock-backed invoices can be fulfilled from an active warehouse; the fulfilment posts all stock-backed lines atomically and is idempotent.
 
 ### Current routes
 
@@ -453,7 +456,7 @@ Use relational columns for core/query-critical data; controlled JSON/metadata on
 
 ## Known remaining gaps
 
-- Sales invoice issue does **not yet post inventory** automatically.
+- Financial invoice issue and physical stock fulfilment are intentionally separate business events. V1 supports one full atomic fulfilment per issued tax invoice; partial fulfilment and returns/reversals are pending.
 - Invoice UI currently focuses on tax invoices; credit/debit-note backend exists but richer UI is pending.
 - Line entry is currently free-form item description/HSN rather than a full stock-item picker.
 - Draft header/profile selections are not yet editable after draft creation; create a new draft if the header is wrong.
@@ -466,13 +469,13 @@ Use relational columns for core/query-critical data; controlled JSON/metadata on
 
 ### Immediate
 
-1. Connect issued **sales tax invoices to inventory posting** with one transactional/idempotent database workflow; do not let invoice issue and stock movement diverge.
-2. Add stock-item selection to invoice lines while retaining immutable item snapshots on issue.
-3. Decide whether stock should post exactly at invoice issue or via an explicit fulfilment/delivery state; document the business invariant before coding.
-4. Add adversarial pgTAP tests for double issue/retry/concurrent issue and stock availability.
-5. Add payments + allocations against issued invoices.
-6. Add PDF/print rendering from immutable issued snapshots.
-7. Add Playwright E2E for organization -> customer -> seller profile -> draft -> line -> issue -> cancel.
+1. Add **payments + allocations** against issued invoices with exact decimal arithmetic, tenant isolation, immutable payment history and over-allocation protection.
+2. Add invoice balance/status reads (unpaid/part-paid/paid) derived from allocations.
+3. Add payment API + invoice UI for recording and allocating receipts.
+4. Add PDF/print rendering from immutable issued snapshots.
+5. Add returns/stock-reversal workflow before allowing fulfilled invoices to be financially cancelled.
+6. Add partial fulfilment only after the full-fulfilment invariant is stable.
+7. Add Playwright E2E for organization -> customer -> seller profile -> draft -> stock line -> issue -> fulfil -> payment.
 8. Keep database and application gates green after every milestone.
 
 ### After that
