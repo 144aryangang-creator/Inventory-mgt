@@ -11,7 +11,8 @@
     "./customer-payments": "./src/customer-payments.ts",
     "./inventory-workspace": "./src/inventory-workspace.ts",
     "./operations": "./src/operations.ts",
-    "./purchase-receipts": "./src/purchase-receipts.ts"
+    "./purchase-receipts": "./src/purchase-receipts.ts",
+    "./bulk-data": "./src/bulk-data.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
