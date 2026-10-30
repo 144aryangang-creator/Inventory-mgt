@@ -14,8 +14,10 @@ describe('bulk data API boundary', () => {
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/csv')
     expect(response.headers.get('x-schema-version')).toBe('1')
-    const body = await response.text()
-    expect(body.startsWith('\uFEFF"sku","name","description","base_uom","track_inventory"')).toBe(true)
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    expect([...bytes.slice(0, 3)]).toEqual([0xef, 0xbb, 0xbf])
+    const body = new TextDecoder().decode(bytes.slice(3))
+    expect(body.startsWith('"sku","name","description","base_uom","track_inventory"')).toBe(true)
   })
 
   it('requires text/csv or text/plain content type', async () => {
