@@ -8,6 +8,7 @@ import { InvoicesPage } from './pages/InvoicesPage'
 import { LoginPage } from './pages/LoginPage'
 import { PartyPage } from './pages/PartyPage'
 import { PaymentsPage } from './pages/PaymentsPage'
+import { PurchaseReceiptsPage } from './pages/PurchaseReceiptsPage'
 import { SettingsPage } from './pages/SettingsPage'
 
 export const router = createBrowserRouter([
@@ -23,6 +24,7 @@ export const router = createBrowserRouter([
           { path: '/customers', element: <PartyPage role="customer" title="Customers" singular="Customer" /> },
           { path: '/suppliers', element: <PartyPage role="supplier" title="Suppliers" singular="Supplier" /> },
           { path: '/inventory', element: <InventoryPage /> },
+          { path: '/purchases', element: <PurchaseReceiptsPage /> },
           { path: '/invoices', element: <InvoicesPage /> },
           { path: '/payments', element: <PaymentsPage /> },
           { path: '/settings', element: <SettingsPage /> },
