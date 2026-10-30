@@ -23,25 +23,25 @@ const basicEmailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const optionalCsvText = (max: number) => z.string().trim().max(max)
 
 export const itemImportRowSchema = z.object({
-  sku: z.string().trim().min(1).max(80).regex(itemCodePattern).transform((v) => v.toUpperCase()),
+  sku: z.string().trim().min(1).max(80).regex(itemCodePattern).transform((value) => value.toUpperCase()),
   name: z.string().trim().min(1).max(200),
   description: optionalCsvText(2000),
-  base_uom: z.string().trim().min(1).max(20).transform((v) => v.toUpperCase()),
+  base_uom: z.string().trim().min(1).max(20).transform((value) => value.toUpperCase()),
   track_inventory: z.enum(['true', 'false', 'TRUE', 'FALSE', '1', '0', 'yes', 'no', 'YES', 'NO']),
 })
 
 export const partyImportRowSchema = z.object({
-  code: z.string().trim().min(1).max(40).regex(partyCodePattern).transform((v) => v.toUpperCase()),
+  code: z.string().trim().min(1).max(40).regex(partyCodePattern).transform((value) => value.toUpperCase()),
   legal_name: z.string().trim().min(1).max(200),
   display_name: z.string().trim().min(1).max(200),
-  email: z.string().trim().max(254).refine((v) => v === '' || basicEmailPattern.test(v), 'Invalid email'),
+  email: z.string().trim().max(254).refine((value) => value === '' || basicEmailPattern.test(value), 'Invalid email'),
   phone: z.string().trim().max(40),
 })
 
 export const openingStockImportRowSchema = z.object({
-  item_sku: z.string().trim().min(1).max(80).regex(itemCodePattern).transform((v) => v.toUpperCase()),
-  warehouse_code: z.string().trim().min(1).max(40).regex(warehouseCodePattern).transform((v) => v.toUpperCase()),
-  quantity: z.string().regex(positiveDecimalPattern).refine((v) => !/^0+(?:\.0+)?$/.test(v), 'Quantity must be positive'),
+  item_sku: z.string().trim().min(1).max(80).regex(itemCodePattern).transform((value) => value.toUpperCase()),
+  warehouse_code: z.string().trim().min(1).max(40).regex(warehouseCodePattern).transform((value) => value.toUpperCase()),
+  quantity: z.string().regex(positiveDecimalPattern).refine((value) => !/^0+(?:\.0+)?$/.test(value), 'Quantity must be positive'),
   unit_cost: z.string().regex(nonNegativeDecimalPattern),
 })
 
@@ -54,7 +54,7 @@ export const bulkCsvHeaders: Record<BulkEntity, readonly string[]> = {
 
 export class CsvContractError extends Error {
   readonly code: string
-  readonly row?: number
+  readonly row: number | undefined
 
   constructor(code: string, message: string, row?: number) {
     super(message)
@@ -78,11 +78,13 @@ function parseCsvMatrix(source: string): string[][] {
   let field = ''
   let inQuotes = false
   let atFieldStart = true
+  let afterQuotedField = false
 
   const pushField = () => {
     row.push(field)
     field = ''
     atFieldStart = true
+    afterQuotedField = false
   }
   const pushRow = () => {
     pushField()
@@ -90,22 +92,39 @@ function parseCsvMatrix(source: string): string[][] {
     row = []
   }
 
-  for (let i = 0; i < input.length; i += 1) {
-    const ch = input[i]
+  for (let index = 0; index < input.length; index += 1) {
+    const ch = input[index]
 
     if (inQuotes) {
       if (ch === '"') {
-        if (input[i + 1] === '"') {
+        if (input[index + 1] === '"') {
           field += '"'
-          i += 1
+          index += 1
         } else {
           inQuotes = false
-          atFieldStart = false
+          afterQuotedField = true
         }
       } else {
         field += ch
       }
       continue
+    }
+
+    if (afterQuotedField) {
+      if (ch === ',') {
+        pushField()
+        continue
+      }
+      if (ch === '\n') {
+        pushRow()
+        continue
+      }
+      if (ch === '\r') {
+        if (input[index + 1] === '\n') index += 1
+        pushRow()
+        continue
+      }
+      throw new CsvContractError('trailing_after_quote', 'Only delimiter or line ending may follow a quoted field')
     }
 
     if (ch === '"') {
@@ -122,7 +141,7 @@ function parseCsvMatrix(source: string): string[][] {
       continue
     }
     if (ch === '\r') {
-      if (input[i + 1] === '\n') i += 1
+      if (input[index + 1] === '\n') index += 1
       pushRow()
       continue
     }
@@ -132,7 +151,7 @@ function parseCsvMatrix(source: string): string[][] {
   }
 
   if (inQuotes) throw new CsvContractError('unclosed_quote', 'CSV contains an unclosed quoted field')
-  if (field !== '' || row.length > 0) pushRow()
+  if (field !== '' || row.length > 0 || afterQuotedField) pushRow()
   return rows
 }
 
@@ -140,10 +159,11 @@ export type ParsedCsvDocument = { headers: string[]; rows: Record<string, string
 
 export function parseVersionedCsv(source: string, entity: BulkEntity): ParsedCsvDocument {
   const matrix = parseCsvMatrix(source)
-  if (matrix.length === 0) throw new CsvContractError('missing_header', 'CSV requires a header row')
+  const headerRow = matrix[0]
+  if (!headerRow) throw new CsvContractError('missing_header', 'CSV requires a header row')
 
   const expected = [...bulkCsvHeaders[entity]]
-  const headers = matrix[0].map((value) => value.trim())
+  const headers = headerRow.map((value) => value.trim())
   if (headers.length !== expected.length || headers.some((header, index) => header !== expected[index])) {
     throw new CsvContractError('header_mismatch', `Expected headers: ${expected.join(',')}`)
   }
@@ -153,15 +173,18 @@ export function parseVersionedCsv(source: string, entity: BulkEntity): ParsedCsv
   if (data.length === 0) throw new CsvContractError('no_rows', 'CSV requires at least one data row')
   if (data.length > BULK_CSV_MAX_ROWS) throw new CsvContractError('too_many_rows', `CSV exceeds ${BULK_CSV_MAX_ROWS} row limit`)
 
-  return {
-    headers,
-    rows: data.map((cells, index) => {
-      if (cells.length !== headers.length) {
-        throw new CsvContractError('column_count', `Row ${index + 2} has ${cells.length} columns; expected ${headers.length}`, index + 2)
-      }
-      return Object.fromEntries(headers.map((header, cellIndex) => [header, cells[cellIndex]]))
-    }),
-  }
+  const rows: Record<string, string>[] = data.map((cells, index) => {
+    if (cells.length !== headers.length) {
+      throw new CsvContractError('column_count', `Row ${index + 2} has ${cells.length} columns; expected ${headers.length}`, index + 2)
+    }
+    const record: Record<string, string> = {}
+    headers.forEach((header, cellIndex) => {
+      record[header] = cells[cellIndex] ?? ''
+    })
+    return record
+  })
+
+  return { headers, rows }
 }
 
 export type BulkValidationIssue = { row: number; field: string; code: string; message: string }
