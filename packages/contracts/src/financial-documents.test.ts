@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest'
 import {
   cancelFinancialDocumentSchema,
   createFinancialDocumentDraftSchema,
+  financialAdjustmentHistoryQuerySchema,
   financialDocumentDetailQuerySchema,
   issueFinancialDocumentSchema,
+  issueInvoiceAdjustmentSchema,
   listFinancialDocumentsQuerySchema,
   upsertFinancialDocumentLineSchema,
 } from './financial-documents'
@@ -13,6 +15,7 @@ const documentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const supplierProfileId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
 const recipientPartyId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const billingAddressId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const originalLineId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 describe('financial document contracts', () => {
   it('normalizes series and currency', () => {
@@ -63,19 +66,30 @@ describe('financial document contracts', () => {
     expect('shipToSnapshot' in parsed).toBe(false)
   })
 
-  it('requires credit and debit notes to reference an invoice', () => {
-    const parsed = createFinancialDocumentDraftSchema.safeParse({
+  it('rejects credit/debit notes on the generic tax-invoice draft route', () => {
+    expect(createFinancialDocumentDraftSchema.safeParse({
       organizationId,
       supplierProfileId,
       recipientPartyId,
       billingAddressId,
       documentType: 'credit_note',
+      linkedDocumentId: documentId,
       documentDate: '2026-10-30',
       seriesCode: 'CN',
       supplyType: 'intra_state',
-    })
+    }).success).toBe(false)
 
-    expect(parsed.success).toBe(false)
+    expect(createFinancialDocumentDraftSchema.safeParse({
+      organizationId,
+      supplierProfileId,
+      recipientPartyId,
+      billingAddressId,
+      documentType: 'debit_note',
+      linkedDocumentId: documentId,
+      documentDate: '2026-10-30',
+      seriesCode: 'DN',
+      supplyType: 'intra_state',
+    }).success).toBe(false)
   })
 
   it('rejects duplicate tax components on a line', () => {
@@ -145,5 +159,66 @@ describe('financial document contracts', () => {
   it('requires exact UUIDs for financial document detail reads', () => {
     expect(financialDocumentDetailQuerySchema.safeParse({ organizationId, documentId }).success).toBe(true)
     expect(financialDocumentDetailQuerySchema.safeParse({ organizationId, documentId: '../invoice' }).success).toBe(false)
+  })
+
+  it('accepts exact-decimal credit/debit adjustments and normalizes series', () => {
+    const parsed = issueInvoiceAdjustmentSchema.parse({
+      organizationId,
+      originalInvoiceId: documentId,
+      adjustmentType: 'credit_note',
+      lines: [{ originalLineId, basisQuantity: '1.250000', taxableAdjustment: '125.50' }],
+      documentDate: '2026-10-30',
+      seriesCode: ' crn ',
+      reason: 'Commercial concession',
+      requestKey: 'adjust-1',
+    })
+
+    expect(parsed.seriesCode).toBe('CRN')
+    expect(parsed.lines[0]?.taxableAdjustment).toBe('125.50')
+  })
+
+  it('rejects numeric adjustment quantities/values and unsupported adjustment types', () => {
+    expect(issueInvoiceAdjustmentSchema.safeParse({
+      organizationId,
+      originalInvoiceId: documentId,
+      adjustmentType: 'credit_note',
+      lines: [{ originalLineId, basisQuantity: 1, taxableAdjustment: '100' }],
+      documentDate: '2026-10-30',
+      seriesCode: 'CRN',
+      reason: 'Commercial concession',
+      requestKey: 'adjust-2',
+    }).success).toBe(false)
+
+    expect(issueInvoiceAdjustmentSchema.safeParse({
+      organizationId,
+      originalInvoiceId: documentId,
+      adjustmentType: 'tax_invoice',
+      lines: [{ originalLineId, basisQuantity: '1', taxableAdjustment: '100' }],
+      documentDate: '2026-10-30',
+      seriesCode: 'INV',
+      reason: 'Invalid type',
+      requestKey: 'adjust-3',
+    }).success).toBe(false)
+  })
+
+  it('rejects duplicate original invoice lines in one adjustment request', () => {
+    expect(issueInvoiceAdjustmentSchema.safeParse({
+      organizationId,
+      originalInvoiceId: documentId,
+      adjustmentType: 'debit_note',
+      lines: [
+        { originalLineId, basisQuantity: '1', taxableAdjustment: '50' },
+        { originalLineId, basisQuantity: '1', taxableAdjustment: '25' },
+      ],
+      documentDate: '2026-10-30',
+      seriesCode: 'DBN',
+      reason: 'Undercharged value',
+      requestKey: 'adjust-4',
+    }).success).toBe(false)
+  })
+
+  it('validates financial adjustment history identifiers', () => {
+    expect(financialAdjustmentHistoryQuerySchema.safeParse({ organizationId, originalInvoiceId: documentId }).success).toBe(true)
+    expect(financialAdjustmentHistoryQuerySchema.safeParse({ organizationId, originalInvoiceId: 'bad' }).success).toBe(false)
   })
 })
