@@ -30,7 +30,8 @@ test('user can onboard and import an item through CSV dry-run', async ({ page },
   await expect(page.getByRole('heading', { name: 'Operational Dashboard' })).toBeVisible()
   await expect(page.getByLabel('Active organization').locator('option:checked')).toHaveText('E2E Inventory Business')
 
-  await page.getByRole('link', { name: 'Import / Export' }).click()
+  const navigation = page.getByRole('navigation', { name: 'Main navigation' })
+  await navigation.getByRole('link', { name: 'Import / Export' }).click()
   await expect(page.getByRole('heading', { name: 'Import & Export' })).toBeVisible()
 
   const csv = [
@@ -54,8 +55,11 @@ test('user can onboard and import an item through CSV dry-run', async ({ page },
   await importButton.click()
   await expect(page.getByText(/Import completed\. Batch/)).toBeVisible()
 
-  await page.getByRole('link', { name: 'Inventory' }).click()
+  await navigation.getByRole('link', { name: 'Inventory' }).click()
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible()
-  await expect(page.getByText(itemName)).toBeVisible()
-  await expect(page.getByText(sku)).toBeVisible()
+
+  const itemCard = page.getByRole('article').filter({ hasText: sku }).first()
+  await expect(itemCard).toBeVisible()
+  await expect(itemCard).toContainText(itemName)
+  await expect(itemCard).toContainText(sku)
 })
