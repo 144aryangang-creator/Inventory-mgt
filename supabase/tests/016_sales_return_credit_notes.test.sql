@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(21);
+select plan(25);
 
 select has_table('public', 'sales_return_credit_notes', 'sales return credit note table exists');
 select has_table('public', 'sales_return_credit_allocations', 'sales return credit allocation table exists');
