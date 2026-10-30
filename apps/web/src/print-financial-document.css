@@ -1,0 +1,272 @@
+.print-document-page {
+  min-height: 100vh;
+  padding: 24px;
+  background: #eef1f5;
+  color: #111827;
+}
+
+.print-document-state {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.print-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 1100px;
+  margin: 0 auto 14px;
+}
+
+.financial-document-sheet {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 32px;
+  background: #fff;
+  border: 1px solid #d7dde7;
+  box-shadow: 0 12px 30px rgb(15 23 42 / 8%);
+}
+
+.print-document-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 28px;
+  padding-bottom: 18px;
+  border-bottom: 2px solid #111827;
+}
+
+.print-kicker {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.print-document-header h1 {
+  margin: 0;
+  font-size: 1.55rem;
+}
+
+.print-document-header dl {
+  display: grid;
+  gap: 4px;
+  min-width: 290px;
+  margin: 0;
+}
+
+.print-document-header dl div {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.print-document-header dt {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.print-document-header dd {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 650;
+  text-align: right;
+  text-transform: capitalize;
+}
+
+.print-cancelled-banner {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 2px solid #b42318;
+  color: #b42318;
+  font-weight: 800;
+  text-align: center;
+}
+
+.print-party-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid #d7dde7;
+  border-bottom: 0;
+  margin-top: 20px;
+}
+
+.print-party-block {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-height: 150px;
+  padding: 14px;
+  border-right: 1px solid #d7dde7;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.print-party-block:last-child {
+  border-right: 0;
+}
+
+.print-party-block h3 {
+  margin: 0 0 6px;
+  color: #64748b;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.print-line-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 0.72rem;
+}
+
+.print-line-table th,
+.print-line-table td {
+  padding: 8px 6px;
+  border: 1px solid #d7dde7;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.print-line-table th {
+  background: #f8fafc;
+  text-align: left;
+}
+
+.print-line-table .number-cell {
+  text-align: right;
+}
+
+.print-totals {
+  display: grid;
+  justify-content: end;
+  margin-top: 16px;
+}
+
+.print-totals > div {
+  display: grid;
+  grid-template-columns: 150px 180px;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 0.78rem;
+}
+
+.print-totals strong {
+  text-align: right;
+}
+
+.print-grand-total {
+  margin-top: 6px;
+  padding-top: 9px !important;
+  border-top: 2px solid #111827;
+  font-size: 0.9rem !important;
+}
+
+.print-notes {
+  margin-top: 20px;
+  padding: 12px;
+  border: 1px solid #d7dde7;
+  font-size: 0.78rem;
+}
+
+.print-notes p {
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+}
+
+.print-footer {
+  margin-top: 22px;
+  padding-top: 10px;
+  border-top: 1px solid #d7dde7;
+  color: #64748b;
+  font-size: 0.65rem;
+  text-align: center;
+}
+
+@media (max-width: 780px) {
+  .print-document-page {
+    padding: 0;
+  }
+
+  .financial-document-sheet {
+    padding: 16px;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .print-document-header,
+  .print-party-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .print-document-header {
+    flex-direction: column;
+  }
+
+  .print-document-header dl {
+    min-width: 0;
+  }
+
+  .print-party-grid {
+    display: grid;
+  }
+
+  .print-party-block {
+    border-right: 0;
+    border-bottom: 1px solid #d7dde7;
+  }
+
+  .print-line-table {
+    font-size: 0.62rem;
+  }
+}
+
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  body {
+    background: #fff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-document-page {
+    min-height: 0;
+    padding: 0;
+    background: #fff;
+  }
+
+  .financial-document-sheet {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    box-shadow: none;
+  }
+
+  .print-document-header,
+  .print-party-grid,
+  .print-line-table,
+  .print-totals,
+  .print-notes {
+    break-inside: avoid;
+  }
+
+  .print-line-table thead {
+    display: table-header-group;
+  }
+
+  .print-line-table tr {
+    break-inside: avoid;
+  }
+}
