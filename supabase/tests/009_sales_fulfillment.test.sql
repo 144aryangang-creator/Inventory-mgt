@@ -131,7 +131,7 @@ select lives_ok(
       '75757575-7575-4575-8575-757575757575',
       'fulfill-one'
     )$$,
-  'owner can atomically fulfill an issued stock-backed invoice'
+  'legacy wrapper can atomically fulfill all remaining stock-backed quantity'
 );
 
 select results_eq(
@@ -182,9 +182,9 @@ select throws_ok(
       '75757575-7575-4575-8575-757575757575',
       'fulfill-one-again'
     )$$,
-  '22023',
+  '23514',
   null,
-  'a second fulfillment with a different request key is rejected'
+  'a fully fulfilled invoice has no remaining stock-backed quantity for another wrapper posting'
 );
 
 set local request.jwt.claim.sub = '72727272-7272-4272-8272-727272727272';
@@ -209,7 +209,7 @@ select throws_ok(
     )$$,
   '23514',
   null,
-  'fulfilled invoice cannot be cancelled without a stock reversal workflow'
+  'fulfilled invoice cannot be cancelled without returning delivered stock'
 );
 
 reset role;
@@ -278,9 +278,9 @@ select ok(
   exists (
     select 1 from public.audit_events
     where organization_id = '73737373-7373-4373-8373-737373737373'
-      and action = 'sales_invoice.fulfilled'
+      and action = 'sales_invoice.fulfillment_posted'
   ),
-  'successful fulfillment creates an audit event'
+  'successful fulfillment creates the high-level posting audit event'
 );
 
 reset role;
