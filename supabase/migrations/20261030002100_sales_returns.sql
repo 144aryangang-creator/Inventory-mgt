@@ -20,6 +20,7 @@ create index sales_returns_org_fulfillment_idx
 create table public.sales_return_lines (
   organization_id uuid not null references public.organizations(id) on delete restrict,
   return_id uuid not null references public.sales_returns(id) on delete restrict,
+  fulfillment_id uuid not null,
   fulfillment_line_id uuid not null,
   item_id uuid not null references public.items(id) on delete restrict,
   inventory_movement_id uuid not null references public.inventory_movements(id) on delete restrict,
@@ -27,12 +28,13 @@ create table public.sales_return_lines (
   created_at timestamptz not null default now(),
   primary key (organization_id, return_id, fulfillment_line_id),
   unique (organization_id, inventory_movement_id),
-  foreign key (fulfillment_line_id, organization_id)
-    references public.sales_fulfillment_lines(financial_document_line_id, organization_id) on delete restrict
+  foreign key (organization_id, fulfillment_id, fulfillment_line_id)
+    references public.sales_fulfillment_lines(organization_id, fulfillment_id, financial_document_line_id)
+    on delete restrict
 );
 
 create index sales_return_lines_org_fulfillment_line_idx
-  on public.sales_return_lines (organization_id, fulfillment_line_id, created_at, return_id);
+  on public.sales_return_lines (organization_id, fulfillment_id, fulfillment_line_id, created_at, return_id);
 
 alter table public.sales_returns enable row level security;
 alter table public.sales_return_lines enable row level security;
@@ -176,6 +178,7 @@ begin
     into v_returned
     from public.sales_return_lines rl
     where rl.organization_id = p_organization_id
+      and rl.fulfillment_id = p_fulfillment_id
       and rl.fulfillment_line_id = v_fulfillment_line_id;
 
     if v_quantity > v_fulfillment_line.quantity - v_returned then
@@ -197,6 +200,7 @@ begin
     insert into public.sales_return_lines (
       organization_id,
       return_id,
+      fulfillment_id,
       fulfillment_line_id,
       item_id,
       inventory_movement_id,
@@ -204,6 +208,7 @@ begin
     ) values (
       p_organization_id,
       v_return_id,
+      p_fulfillment_id,
       v_fulfillment_line_id,
       v_fulfillment_line.item_id,
       v_movement_id,
@@ -259,6 +264,7 @@ begin
            select sum(rl.quantity)
            from public.sales_return_lines rl
            where rl.organization_id = fl.organization_id
+             and rl.fulfillment_id = fl.fulfillment_id
              and rl.fulfillment_line_id = fl.financial_document_line_id
          ), 0)
      ) then
