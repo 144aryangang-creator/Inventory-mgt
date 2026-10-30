@@ -282,21 +282,26 @@ reset role;
 select throws_ok($$update public.financial_adjustments set reason = 'tampered' where request_key = 'service-credit-300'$$, '55000', null, 'financial adjustment headers are immutable even for privileged writes');
 select throws_ok($$update public.financial_adjustment_lines set taxable_adjustment = 1 where adjustment_document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')$$, '55000', null, 'financial adjustment line links are immutable even for privileged writes');
 
-set local role authenticated;
-set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 select results_eq(
   $$select app_private.active_credited_taxable_for_invoice_line('a1000000-0000-4000-8000-000000000010', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')))$$,
-  array[400::numeric], 'shared credit helper includes active return-linked credit taxable value'
+  array[400::numeric], 'private shared credit helper includes active return-linked credit taxable value'
 );
 
+set local role authenticated;
+set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 select lives_ok(
   $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '5', 'taxableAdjustment', '500')), '2026-10-30', 'CRN', 'commercial stock concession', 'stock-credit-500')$$,
   'commercial credit can use remaining taxable capacity after a return credit'
 );
+
+reset role;
 select results_eq(
   $$select app_private.active_credited_taxable_for_invoice_line('a1000000-0000-4000-8000-000000000010', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')))$$,
-  array[900::numeric], 'shared credit ceiling aggregates return and commercial credits'
+  array[900::numeric], 'private shared credit helper aggregates return and commercial credits'
 );
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 select throws_ok(
   $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '2', 'taxableAdjustment', '200')), '2026-10-30', 'CRN', 'would exceed combined ceiling', 'stock-credit-over')$$,
   '23514', null, 'commercial credit cannot exceed remaining value after return-linked credits'
