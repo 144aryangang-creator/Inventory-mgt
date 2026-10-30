@@ -123,6 +123,11 @@ export function InvoiceFulfillmentPanel({ organizationId, documentId, documentSt
     [fulfillment, warehouses],
   )
 
+  function openPrint() {
+    const url = `/financial-documents/${encodeURIComponent(documentId)}/print?organizationId=${encodeURIComponent(organizationId)}`
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   async function fulfill() {
     if (!warehouseId || posting) return
     if (!window.confirm('Fulfil this invoice from the selected warehouse? All stock-backed lines post atomically.')) return
@@ -198,7 +203,10 @@ export function InvoiceFulfillmentPanel({ organizationId, documentId, documentSt
         <div className="invoice-fulfillment-return-stack">
           <div className="invoice-fulfillment-return-header">
             <div><span className="eyebrow">Stock fulfilment</span><strong>Fulfilled</strong><small>{fulfillmentWarehouse ? `${fulfillmentWarehouse.code} · ${fulfillmentWarehouse.name}` : 'Warehouse'} · {new Date(fulfillment.posted_at).toLocaleString()}</small></div>
-            <span className="status-pill neutral">stock posted</span>
+            <div className="invoice-fulfillment-actions">
+              <span className="status-pill neutral">stock posted</span>
+              {documentStatus !== 'draft' ? <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button> : null}
+            </div>
           </div>
 
           <div className="invoice-return-history">
@@ -260,11 +268,27 @@ export function InvoiceFulfillmentPanel({ organizationId, documentId, documentSt
     )
   }
 
-  if (documentStatus !== 'issued') return null
+  if (documentStatus === 'draft') return null
+
   return (
     <div className="invoice-fulfillment">
-      <div><span className="eyebrow">Stock fulfilment</span><strong>{hasStockLines ? 'Ready to fulfil' : 'No stock-backed lines'}</strong><small>{hasStockLines ? 'All stock-backed lines post in one database transaction.' : 'Link invoice lines to inventory items before issue if stock should move.'}</small></div>
-      {hasStockLines ? <div className="invoice-fulfillment-actions"><select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} disabled={posting || warehouses.length === 0}>{warehouses.length === 0 ? <option value="">No active warehouse</option> : null}{warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} · {warehouse.name}</option>)}</select><button className="primary-button" type="button" disabled={posting || !warehouseId} onClick={() => void fulfill()}>{posting ? 'Fulfilling…' : 'Fulfil stock'}</button></div> : null}
+      <div>
+        <span className="eyebrow">Document output</span>
+        <strong>{documentStatus === 'cancelled' ? 'Cancelled document' : hasStockLines ? 'Ready to fulfil' : 'Issued non-stock document'}</strong>
+        <small>{documentStatus === 'cancelled' ? 'The cancelled status and reason are preserved on the print view.' : hasStockLines ? 'All stock-backed lines post in one database transaction.' : 'This document has no stock-backed lines.'}</small>
+      </div>
+      <div className="invoice-fulfillment-actions">
+        {documentStatus === 'issued' && hasStockLines ? (
+          <>
+            <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} disabled={posting || warehouses.length === 0}>
+              {warehouses.length === 0 ? <option value="">No active warehouse</option> : null}
+              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} · {warehouse.name}</option>)}
+            </select>
+            <button className="primary-button" type="button" disabled={posting || !warehouseId} onClick={() => void fulfill()}>{posting ? 'Fulfilling…' : 'Fulfil stock'}</button>
+          </>
+        ) : null}
+        <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button>
+      </div>
       {error ? <p className="error-message" role="alert">{error}</p> : null}
     </div>
   )
