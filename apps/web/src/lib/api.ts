@@ -20,7 +20,7 @@ export function joinApiUrl(baseUrl: string, path: string): string {
   return `${base}${normalizedPath}`
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
   const supabase = getSupabaseClient()
   const { data, error } = await supabase.auth.getSession()
 
@@ -32,7 +32,11 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   headers.set('Authorization', `Bearer ${data.session.access_token}`)
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
-  const response = await fetch(joinApiUrl(import.meta.env.VITE_API_BASE_URL ?? '', path), { ...init, headers })
+  return fetch(joinApiUrl(import.meta.env.VITE_API_BASE_URL ?? '', path), { ...init, headers })
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiRequest(path, init)
 
   if (!response.ok) {
     const requestId = response.headers.get('x-request-id')
