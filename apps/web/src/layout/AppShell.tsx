@@ -10,6 +10,7 @@ const navigation = [
   ['/purchases', 'Purchase Receipts'],
   ['/invoices', 'Invoices'],
   ['/payments', 'Payments'],
+  ['/data', 'Import / Export'],
   ['/audit', 'Audit Log'],
   ['/settings', 'Settings'],
 ] as const
