@@ -378,7 +378,7 @@ select throws_ok(
   'inter-state document cannot be issued with CGST'
 );
 
-select lives_ok(
+select throws_ok(
   $$select public.create_financial_document_draft_from_profiles(
       'aaaaaaaa-1010-4010-8010-aaaaaaaaaaaa',
       'aaaaaaaa-4040-4040-8040-aaaaaaaaaaaa',
@@ -390,7 +390,9 @@ select lives_ok(
       (select id from public.financial_documents where notes = 'first invoice'),
       'INR', '23', false, 'credit note linked'
     )$$,
-  'credit note can link to an issued tax invoice'
+  '42501',
+  null,
+  'generic profile draft path cannot create credit notes even with an issued invoice reference'
 );
 
 select throws_ok(
@@ -401,9 +403,9 @@ select throws_ok(
       'aaaaaaaa-3030-4030-8030-aaaaaaaaaaaa',
       'aaaaaaaa-5050-4050-8050-aaaaaaaaaaaa'
     )$$,
-  '23503',
+  '42501',
   null,
-  'credit note cannot be created without an issued invoice reference'
+  'credit notes require a controlled adjustment workflow rather than generic draft creation'
 );
 
 reset role;
