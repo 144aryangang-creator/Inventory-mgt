@@ -4,6 +4,7 @@ import { salesFulfillmentRoutes } from './sales-fulfillment'
 const organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const fulfillmentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const fulfillmentLineId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const salesReturnId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 describe('sales fulfillment API boundary', () => {
   it('rejects malformed fulfillment identifiers before database access', async () => {
@@ -59,6 +60,26 @@ describe('sales fulfillment API boundary', () => {
 
   it('rejects malformed return history identifiers', async () => {
     const response = await salesFulfillmentRoutes.request('/fulfillments/bad/returns?organizationId=bad')
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects numeric return-credit quantities before database access', async () => {
+    const response = await salesFulfillmentRoutes.request(`/returns/${salesReturnId}/credit-note`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        organizationId,
+        lines: [{ fulfillmentLineId, quantity: 1 }],
+        documentDate: '2026-10-30',
+        seriesCode: 'CRN',
+        requestKey: 'credit-1',
+      }),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects malformed return-credit history identifiers', async () => {
+    const response = await salesFulfillmentRoutes.request('/returns/bad/credits?organizationId=bad')
     expect(response.status).toBe(400)
   })
 })
