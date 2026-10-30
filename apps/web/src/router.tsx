@@ -1,11 +1,12 @@
 import { createBrowserRouter } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppShell } from './layout/AppShell'
-import { DashboardPage } from './pages/DashboardPage'
+import { AuditLogPage } from './pages/AuditLogPage'
 import { FinancialDocumentPrintPage } from './pages/FinancialDocumentPrintPage'
 import { InventoryPage } from './pages/InventoryPage'
 import { InvoicesPage } from './pages/InvoicesPage'
 import { LoginPage } from './pages/LoginPage'
+import { OperationalDashboardPage } from './pages/OperationalDashboardPage'
 import { PartyPage } from './pages/PartyPage'
 import { PaymentsPage } from './pages/PaymentsPage'
 import { PurchaseReceiptsPage } from './pages/PurchaseReceiptsPage'
@@ -20,13 +21,14 @@ export const router = createBrowserRouter([
       {
         element: <AppShell />,
         children: [
-          { path: '/', element: <DashboardPage /> },
+          { path: '/', element: <OperationalDashboardPage /> },
           { path: '/customers', element: <PartyPage role="customer" title="Customers" singular="Customer" /> },
           { path: '/suppliers', element: <PartyPage role="supplier" title="Suppliers" singular="Supplier" /> },
           { path: '/inventory', element: <InventoryPage /> },
           { path: '/purchases', element: <PurchaseReceiptsPage /> },
           { path: '/invoices', element: <InvoicesPage /> },
           { path: '/payments', element: <PaymentsPage /> },
+          { path: '/audit', element: <AuditLogPage /> },
           { path: '/settings', element: <SettingsPage /> },
         ],
       },
