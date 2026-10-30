@@ -3,7 +3,7 @@ import { useState, type FormEvent } from 'react'
 import { useOrganization } from '../organizations/OrganizationProvider'
 import { suggestOrganizationSlug } from '../organizations/organization'
 
-function OrganizationOnboarding() {
+export function OrganizationOnboarding() {
   const { createOrganization } = useOrganization()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
