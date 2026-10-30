@@ -1,0 +1,49 @@
+.invoice-return-form select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+}
+
+.invoice-fulfillment-posting {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #d8eadf;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.invoice-fulfillment-line-list,
+.invoice-fulfillment-return-history {
+  display: grid;
+  gap: 5px;
+}
+
+.invoice-fulfillment-line-list {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.invoice-fulfillment-return-history {
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.invoice-fulfillment-return-history .invoice-return-record {
+  align-items: flex-start;
+}
+
+.invoice-fulfillment-return-history .invoice-return-form {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
+@media (max-width: 760px) {
+  .invoice-fulfillment-posting {
+    padding: 10px;
+  }
+}
