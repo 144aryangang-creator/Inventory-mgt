@@ -1,6 +1,6 @@
 # Inventory Management + Invoicing SaaS
 
-Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security and business-invariant boundary; the React/API layers remain tenant-scoped clients of that model.
+Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security and business-invariant boundary; React/API layers remain tenant-scoped clients of that model.
 
 > **Resume rule:** Read this README first. Update it after major milestones, security/data-model changes, and before ending substantial work.
 
@@ -9,8 +9,8 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
 - Main branch: foundation work is not merged yet
-- Database CI: **GREEN** — run `40978061028`
-- Application CI: **GREEN** — run `40978822277`
+- Database CI: **GREEN** — run `40981550173`
+- Application CI: **GREEN** — run `40981215073`
 - Production deployment: **not started**
 - Production credentials/customer data: **not configured or committed**
 
@@ -24,25 +24,27 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 - customer/supplier party master
 - party addresses + tax registrations/GSTIN structural validation
 - seller/legal billing profiles
-- GST financial-document core
+- GST tax invoices, credit notes and debit notes
 - PostgreSQL-derived seller/buyer/address/tax/item snapshots
 - PostgreSQL-authoritative invoice line/tax arithmetic
 - financial-year/series numbering + idempotent issue
-- issued-document immutability + cancellation rules
-- atomic one-warehouse sales fulfilment
+- immutable issued/cancelled financial documents
+- atomic one-warehouse full sales fulfilment
 - immutable customer receipts + allocations
-- partial/idempotent allocation reversals and payment refunds
+- partial/idempotent allocation reversals + payment refunds
 - reversal-aware invoice balances/status
-- immutable partial sales returns using `return_in`
-- over-return protection + return-aware invoice cancellation
-- return-linked issued credit notes derived from original invoice snapshots/rates
-- over-credit protection + cancelled-credit eligibility release
+- immutable partial sales returns with `return_in`
+- return-linked issued credit notes
+- general non-return commercial credit/debit notes linked to issued invoices
+- one shared active credit ceiling across return credits + commercial credits
+- row-lock serialization of competing credits on the same original invoice line
+- generic authenticated financial-document draft path restricted to tax invoices only
+- original invoice cancellation blocked while active linked credit/debit notes exist
 - Payments correction UI
 - Invoice fulfilment / return / return-credit UI
+- Invoice commercial credit/debit adjustment UI
 - authenticated A4 print view for issued/cancelled tax invoices, credit notes and debit notes
-- browser **Print / Save PDF** workflow from immutable document snapshots/totals
-- linked-original-document reference on correction-document print output
-- print-model unit tests and print-safe CSS
+- browser **Print / Save PDF** from immutable document snapshots/totals
 - React auth shell + tenant switcher
 - reproducible npm lockfile + read-only CI
 
@@ -57,11 +59,12 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 | Database/Auth | Supabase PostgreSQL + Supabase Auth |
 | Tenant isolation | PostgreSQL RLS |
 | Inventory truth | Append-only stock movement ledger |
-| Financial documents | Drafts editable; issued documents immutable |
+| Financial documents | Draft tax invoices editable; issued docs immutable |
 | Legal/item identity | PostgreSQL-built immutable snapshots |
 | Tax/money math | PostgreSQL `numeric`; decimal strings across JS boundaries |
 | Payments | Immutable receipt/allocation/reversal ledgers |
-| Returns | Immutable physical-return ledger + separate immutable financial-credit linkage |
+| Returns | Immutable physical-return ledger + separate financial-credit linkage |
+| Commercial corrections | Controlled issued credit/debit-note workflow from original invoice |
 | Document output | Authenticated print route; browser Print / Save PDF first |
 | CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
@@ -94,10 +97,14 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 24. Aggregate return quantity cannot exceed original fulfilled quantity.
 25. A fulfilled invoice cannot be cancelled while fulfilled stock remains unreturned.
 26. Physical returns and financial credits remain separate immutable ledgers with explicit linkage.
-27. Return-linked credit notes derive seller/buyer/item snapshots, price, discount and tax rates from the original issued invoice.
-28. Active credited quantity cannot exceed returned quantity.
-29. Cancelling a return-linked credit note releases financial-credit eligibility only; stock-return history remains unchanged.
-30. Printable financial documents render only immutable issued/cancelled document data; draft documents are not printable.
+27. Return-linked credit notes derive snapshots/prices/GST from the original issued invoice.
+28. Commercial credit/debit notes also derive snapshots/item identity/GST from the original invoice.
+29. Generic tenant-facing draft creation cannot create arbitrary credit/debit notes.
+30. Active commercial + return-linked credits share one taxable-value ceiling per original invoice line.
+31. Competing credits serialize by locking the original invoice line before consuming credit capacity.
+32. Cancelling an issued credit note releases only financial-credit capacity; original invoice/stock history remains unchanged.
+33. An original tax invoice cannot be cancelled while any active linked credit/debit note exists.
+34. Printable financial documents use immutable issued/cancelled document data; drafts are not printable.
 
 ## Database milestones
 
@@ -105,71 +112,73 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 
 Core tables: `items`, `warehouses`, `inventory_balances`, `inventory_movements`, `audit_events`.
 
-`post_inventory_movement(...)` remains the stock-ledger write primitive with tenant access, active item/warehouse validation, signed quantities, row locking, negative-stock policy, idempotency and audit logging.
-
-Inventory master workflows include audited item/warehouse create/update/archive plus atomic `transfer_inventory(...)`. Direct authenticated master writes are revoked.
+`post_inventory_movement(...)` remains the stock-ledger primitive with tenant validation, row locking, negative-stock policy, idempotency and audit logging. Audited master workflows cover item/warehouse create/update/archive and atomic warehouse transfers.
 
 ### Parties and legal profiles
 
-- reusable party master with customer/supplier roles
+- reusable customer/supplier party master
 - multiple addresses and tax registrations
 - seller/legal billing profiles
 - archive lifecycle instead of destructive delete
 - GSTIN structure/state validation
-- verification remains `unverified` until a trusted external source confirms it
+- trusted GST verification integration still pending
 
 ### Financial documents
 
-Supported: tax invoice, credit note, debit note.
+Supported: `tax_invoice`, `credit_note`, `debit_note`.
 
 Implemented:
 
-- `draft -> issued -> cancelled`
+- draft tax invoice → issued → cancelled
 - financial-year/series row-locked numbering
 - CGST / SGST / UTGST / IGST / CESS
 - place-of-supply validation
 - issue-time PostgreSQL totals
-- immutable issued header/lines/taxes
-- linked credit/debit documents
-- PostgreSQL-built legal/address/tax/item snapshots
-- browser item snapshot JSON ignored
+- immutable issued headers/lines/taxes
+- linked correction documents
+- PostgreSQL-built immutable legal/address/tax/item snapshots
 
-`20261030002200_sales_return_credit_notes.sql` adds immutable physical-return → financial-credit linkage:
+`20261030002200_sales_return_credit_notes.sql` implements physical-return → issued credit-note linkage.
 
-- return-credit links are tenant-scoped and immutable
-- credit notes link to the original tax invoice
-- lines copy original issued snapshots, price, UOM, HSN/SAC and tax rates
-- partial credit derives taxable/discount values proportionally in PostgreSQL
-- credit note creation + issue is atomic
-- exact credited quantity links back to the immutable return line
-- active credited quantity cannot exceed returned quantity
-- cancelled credits release eligibility for replacement corrections
-- retries are idempotent and accepted credits are audited
+`20261030002300_financial_adjustments.sql` implements general commercial adjustments:
+
+- immutable `financial_adjustments` + `financial_adjustment_lines`
+- atomic `issue_invoice_adjustment(...)`
+- original issued invoice + exact original-line references required
+- exact decimal `basisQuantity` + `taxableAdjustment` at JS boundaries
+- seller/buyer/item/HSN/UOM/GST copied from immutable original invoice
+- credit notes reduce taxable value; debit notes increase it
+- active credit cannot exceed original taxable value
+- commercial credits and return-linked credits share the same ceiling
+- generic profile-based draft RPC is tax-invoice-only
+- original invoice cancellation is blocked while active correction docs exist
+- accepted adjustments are idempotent and audited
+
+`20261030002400_financial_adjustment_concurrency.sql` locks the original invoice line before shared credit-capacity checks, preventing concurrent over-credit across commercial and return-credit workflows.
 
 ### Sales fulfilment and returns
 
-`20261030001400_sales_fulfillment.sql` implements atomic full fulfilment from one warehouse.
+`20261030001400_sales_fulfillment.sql` currently implements one immutable, full, one-warehouse fulfilment per invoice.
 
 `20261030002100_sales_returns.sql` implements immutable partial returns:
 
 - exact fulfilment-line references
-- `return_in` to original fulfilment warehouse
-- partial/multiple returns
+- `return_in` to the original fulfilment warehouse
+- multiple returns per fulfilment
 - over-return prevention
 - idempotency + audit
-- immutable return rows
 - invoice cancellation blocked until all fulfilled stock is returned
 
-Not yet implemented: partial/multi-warehouse outbound fulfilment.
+**Next:** evolve fulfilment to multiple immutable fulfilments per invoice, one warehouse per fulfilment, with partial line quantities and aggregate over-fulfilment protection.
 
 ### Customer payments
 
-- immutable receipts and allocations
+- immutable receipts + allocations
 - atomic receipt + invoice allocation
 - customer/currency matching
 - over-allocation protection
 - immutable partial allocation reversals
-- immutable partial customer-payment refunds
+- immutable partial payment refunds
 - net/reversal-aware invoice balance/status
 - idempotency + audit
 
@@ -197,8 +206,10 @@ Not yet implemented: partial/multi-warehouse outbound fulfilment.
 20. `20261030002000_payment_reversals.sql`
 21. `20261030002100_sales_returns.sql`
 22. `20261030002200_sales_return_credit_notes.sql`
+23. `20261030002300_financial_adjustments.sql`
+24. `20261030002400_financial_adjustment_concurrency.sql`
 
-Do not reuse an existing migration version.
+Do not reuse migration versions.
 
 ## pgTAP regression suites
 
@@ -218,8 +229,9 @@ Do not reuse an existing migration version.
 14. `014_payment_reversals.test.sql` — 20 assertions
 15. `015_sales_returns.test.sql` — 16 assertions
 16. `016_sales_return_credit_notes.test.sql` — 25 assertions
+17. `017_financial_adjustments.test.sql` — 37 assertions
 
-Database CI rebuilds migrations `001–022`, lints the schema, runs suites `001–016`, and shuts Supabase down cleanly.
+Database CI rebuilds migrations `001–024`, lints the schema, runs suites `001–017`, and shuts Supabase down cleanly.
 
 ## API domains
 
@@ -232,10 +244,16 @@ Implemented:
 - seller billing profiles
 - inventory
 - financial documents
+- `/v1/financial-adjustments`
 - sales fulfilment + returns + return credits
 - customer payments + reversals
 
-Return-credit API supports atomic issued credit notes from exact returned quantities plus linkage/status history.
+`/v1/financial-adjustments` supports:
+
+- atomic issue of a controlled commercial credit/debit note
+- exact-decimal original-line adjustment inputs
+- tenant/role/idempotency/credit-limit errors mapped at the API boundary
+- correction history including line linkage and document totals/status
 
 ## Web application
 
@@ -249,32 +267,24 @@ Routes:
 - `/invoices`
 - `/payments`
 - `/settings`
-- `/financial-documents/:documentId/print?organizationId=...` — authenticated print-only view
+- `/financial-documents/:documentId/print?organizationId=...`
 
 ### Invoice workspace
 
+- tax-invoice draft creation
 - seller/customer/address/GST selection
-- inventory or service lines
+- inventory/service lines
 - PostgreSQL-calculated taxes/totals
 - issue/cancel
 - immutable issued detail
 - warehouse fulfilment
 - partial sales returns
 - return-credit issue/status history
-- **Print / Save PDF** for issued and cancelled documents, including service/non-stock documents
+- general commercial credit/debit issue/history
+- commercial adjustment per original invoice line using basis quantity + taxable adjustment
+- Print / Save PDF for issued/cancelled tax invoices, credit notes and debit notes
 
-Print output includes:
-
-- correct Tax Invoice / Credit Note / Debit Note label
-- document number/date/supply/POS/reverse-charge
-- original invoice reference for linked correction documents
-- supplier, bill-to and ship-to immutable snapshot data
-- GSTIN, HSN/SAC, quantities, rates, discounts, taxable values and per-line taxes
-- PostgreSQL-authoritative document totals
-- cancelled banner/reason when applicable
-- A4 print CSS, repeated table header and print-safe page breaks
-
-The print route refuses drafts and never reconstructs legal/tax values from current master data.
+The browser never supplies correction GST rates, tax amounts, legal snapshots or item snapshots.
 
 ### Payments workspace
 
@@ -289,22 +299,22 @@ The print route refuses drafts and never reconstructs legal/tax values from curr
 
 ### Database CI — GREEN
 
-Run `40978061028`:
+Run `40981550173`:
 
 - Supabase startup: passed
-- migration rebuild through `20261030002200`: passed
+- migration rebuild through `20261030002400`: passed
 - schema lint: passed
-- pgTAP suites `001–016`: passed
+- pgTAP suites `001–017`: passed
 - clean shutdown: passed
 
 ### Application CI — GREEN
 
-Run `40978822277`:
+Run `40981215073`:
 
 - `npm ci`: passed
 - lockfile drift check: passed
 - strict TypeScript: passed
-- contracts/API/web tests, including print-model tests: passed
+- contracts/API/web tests: passed
 - Cloudflare Worker production build: passed
 - React/Vite production build: passed
 
@@ -312,29 +322,29 @@ Run `40978822277`:
 
 High priority:
 
-1. **General credit/debit note workflow** — return-linked credits are complete; add an authoritative UI/RPC for non-return commercial adjustments linked to issued invoices.
-2. **Partial and multi-warehouse outbound fulfilment**.
-3. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
-4. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
-5. Browser E2E/Playwright coverage, especially print/return/payment flows.
-6. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
+1. **Partial and multi-warehouse outbound fulfilment**.
+2. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
+3. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
+4. Browser E2E/Playwright coverage for invoice, correction, print, return and payment flows.
+5. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
 
 ## Next engineering task
 
-**Implement a general non-return credit/debit-note workflow linked to an issued tax invoice.**
+**Implement partial and multi-warehouse outbound fulfilment without rewriting existing fulfilment/return history.**
 
-Recommended order:
+Recommended design:
 
-1. create an authoritative PostgreSQL adjustment-draft RPC from the original issued invoice snapshots rather than current party master data
-2. define how adjustment lines reference/copy original invoice lines and how quantity/value limits are enforced
-3. preserve original GST treatment while allowing legitimate commercial credit/debit adjustments
-4. add idempotency and audit semantics
-5. expose API contracts/endpoints
-6. add invoice-workspace UI for new credit/debit adjustments
-7. reuse the existing immutable issue/cancel and print infrastructure
-8. add pgTAP tests for wrong tenant/invoice, over-adjustment, retries, cancellation and immutable snapshots
+1. remove the one-fulfilment-per-invoice uniqueness restriction for new postings
+2. keep each fulfilment immutable and tied to exactly one warehouse
+3. allow exact partial quantities per original stock-backed invoice line
+4. lock original invoice lines before checking aggregate fulfilled quantity
+5. prevent aggregate fulfilment across all warehouses from exceeding invoiced quantity
+6. retain returns against a specific fulfilment so stock always returns to that fulfilment's warehouse
+7. make invoice fulfilment status derived: unfulfilled / partial / fulfilled
+8. keep legacy full-one-warehouse RPC as a compatibility wrapper over remaining quantities where practical
+9. update API/contracts/UI and add adversarial pgTAP tests for concurrency, cross-warehouse partials, over-fulfilment and returns
 
-After that: partial/multi-warehouse fulfilment, purchase workflow, dashboards/import-export, E2E tests and production hardening.
+After that: purchase workflow, dashboards/import-export, E2E tests and production hardening.
 
 ## Customization rule
 
