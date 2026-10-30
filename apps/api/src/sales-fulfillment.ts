@@ -1,7 +1,9 @@
 import {
   fulfillSalesInvoiceSchema,
   issueSalesReturnCreditNoteSchema,
+  postSalesFulfillmentSchema,
   returnSalesFulfillmentSchema,
+  salesFulfillmentHistoryQuerySchema,
   salesReturnCreditHistoryQuerySchema,
   salesReturnHistoryQuerySchema,
 } from '@inventory/contracts/sales-fulfillment'
@@ -31,6 +33,93 @@ function validationResponse(c: Context<Env>, issues?: { path: PropertyKey[]; mes
   }, 400)
 }
 
+salesFulfillmentRoutes.get('/:documentId/fulfillments', async (c) => {
+  const parsed = salesFulfillmentHistoryQuerySchema.safeParse({
+    organizationId: c.req.query('organizationId'),
+    documentId: c.req.param('documentId'),
+  })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const supabase = c.get('supabase')
+  const [{ data: summary, error: summaryError }, { data: fulfillments, error: fulfillmentError }] = await Promise.all([
+    supabase.rpc('get_sales_invoice_fulfillment_summary', {
+      p_organization_id: input.organizationId,
+      p_financial_document_id: input.documentId,
+    }),
+    supabase
+      .from('sales_fulfillments')
+      .select('id,financial_document_id,warehouse_id,request_key,request_payload,posted_at,created_by')
+      .eq('organization_id', input.organizationId)
+      .eq('financial_document_id', input.documentId)
+      .order('posted_at', { ascending: true })
+      .order('id', { ascending: true }),
+  ])
+
+  if (summaryError) {
+    console.error('sales_fulfillment_summary_failed', { requestId: c.get('requestId'), code: summaryError.code })
+    if (summaryError.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    if (summaryError.code === 'P0002') return c.json({ error: 'invoice_not_found', requestId: c.get('requestId') }, 404)
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  if (fulfillmentError) {
+    console.error('sales_fulfillment_history_failed', { requestId: c.get('requestId'), code: fulfillmentError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  const fulfillmentIds = (fulfillments ?? []).map((fulfillment) => fulfillment.id as string)
+  if (fulfillmentIds.length === 0) {
+    return c.json({ summary, data: [], lines: [], requestId: c.get('requestId') })
+  }
+
+  const { data: lines, error: lineError } = await supabase
+    .from('sales_fulfillment_lines')
+    .select('fulfillment_id,financial_document_line_id,item_id,inventory_movement_id,quantity,created_at')
+    .eq('organization_id', input.organizationId)
+    .in('fulfillment_id', fulfillmentIds)
+    .order('created_at', { ascending: true })
+
+  if (lineError) {
+    console.error('sales_fulfillment_history_lines_failed', { requestId: c.get('requestId'), code: lineError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ summary, data: fulfillments ?? [], lines: lines ?? [], requestId: c.get('requestId') })
+})
+
+salesFulfillmentRoutes.post('/:documentId/fulfillments', async (c) => {
+  let body: unknown
+  try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return validationResponse(c)
+
+  const parsed = postSalesFulfillmentSchema.safeParse({ ...body, documentId: c.req.param('documentId') })
+  if (!parsed.success) return validationResponse(c, parsed.error.issues)
+
+  const input = parsed.data
+  const { data, error } = await c.get('supabase').rpc('post_sales_fulfillment', {
+    p_organization_id: input.organizationId,
+    p_financial_document_id: input.documentId,
+    p_warehouse_id: input.warehouseId,
+    p_lines: input.lines,
+    p_request_key: input.requestKey,
+  })
+
+  if (error) {
+    console.error('sales_partial_fulfillment_post_failed', { requestId: c.get('requestId'), code: error.code })
+    if (error.code === '42501') return c.json({ error: 'forbidden', requestId: c.get('requestId') }, 403)
+    if (error.code === 'P0002') return c.json({ error: 'issued_invoice_or_line_not_found', requestId: c.get('requestId') }, 404)
+    if (error.code === '23503') return c.json({ error: 'invalid_warehouse_or_reference', requestId: c.get('requestId') }, 400)
+    if (error.code === '22023') return c.json({ error: 'fulfillment_idempotency_conflict', requestId: c.get('requestId') }, 409)
+    if (error.code === '23514') return c.json({ error: 'fulfillment_quantity_not_allowed_or_insufficient_stock', requestId: c.get('requestId') }, 409)
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ fulfillmentId: data, requestId: c.get('requestId') }, 201)
+})
+
+// Compatibility endpoint for old clients. Once more than one immutable posting exists, clients
+// must switch to the plural endpoint so history is never silently truncated.
 salesFulfillmentRoutes.get('/:documentId/fulfillment', async (c) => {
   const parsed = fulfillSalesInvoiceSchema.pick({ organizationId: true, documentId: true }).safeParse({
     organizationId: c.req.query('organizationId'),
@@ -38,21 +127,26 @@ salesFulfillmentRoutes.get('/:documentId/fulfillment', async (c) => {
   })
   if (!parsed.success) return validationResponse(c, parsed.error.issues)
 
-  const { data: fulfillment, error } = await c
+  const { data: fulfillments, error } = await c
     .get('supabase')
     .from('sales_fulfillments')
     .select('id,financial_document_id,warehouse_id,request_key,posted_at,created_by')
     .eq('organization_id', parsed.data.organizationId)
     .eq('financial_document_id', parsed.data.documentId)
-    .maybeSingle()
+    .order('posted_at', { ascending: true })
+    .limit(2)
 
   if (error) {
     console.error('sales_fulfillment_read_failed', { requestId: c.get('requestId'), code: error.code })
     return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
   }
 
-  if (!fulfillment) return c.json({ data: null, lines: [], requestId: c.get('requestId') })
+  if (!fulfillments || fulfillments.length === 0) return c.json({ data: null, lines: [], requestId: c.get('requestId') })
+  if (fulfillments.length > 1) {
+    return c.json({ error: 'multiple_fulfillments_use_plural_endpoint', requestId: c.get('requestId') }, 409)
+  }
 
+  const fulfillment = fulfillments[0]!
   const { data: lines, error: lineError } = await c
     .get('supabase')
     .from('sales_fulfillment_lines')
@@ -69,6 +163,7 @@ salesFulfillmentRoutes.get('/:documentId/fulfillment', async (c) => {
   return c.json({ data: fulfillment, lines: lines ?? [], requestId: c.get('requestId') })
 })
 
+// Compatibility endpoint: posts all remaining stock-backed quantities from one warehouse.
 salesFulfillmentRoutes.post('/:documentId/fulfill', async (c) => {
   let body: unknown
   try { body = await c.req.json() } catch { return c.json({ error: 'invalid_json', requestId: c.get('requestId') }, 400) }
