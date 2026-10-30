@@ -7,28 +7,35 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('new user can create an organization and import an item through CSV dry-run', async ({ page }) => {
+test('user can onboard and import an item through CSV dry-run', async ({ page }, testInfo) => {
+  const suffix = testInfo.retry + 1
+  const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
+  const itemName = `E2E Imported Widget ${suffix}`
+
   await page.goto('/login')
 
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
   await page.getByRole('button', { name: 'Sign in' }).click()
 
-  await expect(page.getByRole('heading', { name: 'Create your organization' })).toBeVisible()
-
-  await page.getByLabel('Business name').fill('E2E Inventory Business')
-  await page.getByLabel('Organization slug').fill('e2e-inventory-business')
-  await page.getByRole('button', { name: 'Create organization' }).click()
+  // Retries may reuse the organization created by an earlier failed attempt.
+  await expect(page.locator('h1').first()).toHaveText(/Create your organization|Operational Dashboard/)
+  const onboardingHeading = page.getByRole('heading', { name: 'Create your organization' })
+  if (await onboardingHeading.isVisible()) {
+    await page.getByLabel('Business name').fill('E2E Inventory Business')
+    await page.getByLabel('Organization slug').fill('e2e-inventory-business')
+    await page.getByRole('button', { name: 'Create organization' }).click()
+  }
 
   await expect(page.getByRole('heading', { name: 'Operational Dashboard' })).toBeVisible()
-  await expect(page.getByText('E2E Inventory Business').first()).toBeVisible()
+  await expect(page.getByLabel('Active organization').locator('option:checked')).toHaveText('E2E Inventory Business')
 
   await page.getByRole('link', { name: 'Import / Export' }).click()
   await expect(page.getByRole('heading', { name: 'Import & Export' })).toBeVisible()
 
   const csv = [
     'sku,name,description,base_uom,track_inventory',
-    'E2E-ITEM-001,E2E Imported Widget,Created by browser E2E,EA,true',
+    `${sku},${itemName},Created by browser E2E,EA,true`,
     '',
   ].join('\r\n')
 
@@ -49,6 +56,6 @@ test('new user can create an organization and import an item through CSV dry-run
 
   await page.getByRole('link', { name: 'Inventory' }).click()
   await expect(page.getByRole('heading', { name: 'Inventory' })).toBeVisible()
-  await expect(page.getByText('E2E Imported Widget')).toBeVisible()
-  await expect(page.getByText('E2E-ITEM-001')).toBeVisible()
+  await expect(page.getByText(itemName)).toBeVisible()
+  await expect(page.getByText(sku)).toBeVisible()
 })
