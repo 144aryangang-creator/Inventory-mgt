@@ -1,0 +1,252 @@
+.bulk-page {
+  display: grid;
+  gap: 18px;
+}
+
+.bulk-header,
+.bulk-workspace-head,
+.bulk-actions,
+.bulk-download-actions,
+.bulk-issues-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.bulk-header h1,
+.bulk-workspace h2 {
+  margin: 3px 0 4px;
+}
+
+.bulk-header p,
+.bulk-workspace-head p,
+.bulk-notice span,
+.bulk-entities span,
+.bulk-opening-warning span,
+.bulk-issues-head span,
+.bulk-file-field small,
+.bulk-row-count {
+  color: var(--muted);
+}
+
+.bulk-version {
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.bulk-notice,
+.bulk-opening-warning,
+.bulk-valid,
+.bulk-status,
+.bulk-empty {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.bulk-notice,
+.bulk-opening-warning {
+  display: grid;
+  gap: 4px;
+}
+
+.bulk-opening-warning {
+  border-color: #f5d58b;
+  background: #fffaf0;
+}
+
+.bulk-grid {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.32fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.bulk-entities,
+.bulk-workspace {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.bulk-entities {
+  display: grid;
+  gap: 6px;
+  padding: 8px;
+}
+
+.bulk-entities button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.bulk-entities button:hover {
+  background: var(--surface-subtle);
+}
+
+.bulk-entities button.active {
+  border-color: var(--border);
+  background: var(--surface-subtle);
+}
+
+.bulk-entities strong {
+  font-size: 0.88rem;
+}
+
+.bulk-entities span {
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+.bulk-workspace {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.bulk-download-actions,
+.bulk-actions {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.bulk-workspace-head .bulk-download-actions {
+  justify-content: flex-end;
+}
+
+.bulk-file-field {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  font-size: 0.83rem;
+  font-weight: 700;
+}
+
+.bulk-file-field input {
+  width: 100%;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  font: inherit;
+}
+
+.bulk-file-field small,
+.bulk-row-count {
+  font-size: 0.74rem;
+  font-weight: 500;
+}
+
+.bulk-status {
+  font-size: 0.82rem;
+}
+
+.bulk-status.invalid {
+  border-color: #f2b8b5;
+  background: #fef3f2;
+}
+
+.bulk-status.valid,
+.bulk-valid {
+  border-color: #a9d8b7;
+  background: #f0fdf4;
+}
+
+.bulk-valid {
+  font-size: 0.78rem;
+}
+
+.bulk-issues {
+  display: grid;
+  gap: 9px;
+}
+
+.bulk-issues-head {
+  align-items: baseline;
+}
+
+.bulk-issues-head span {
+  font-size: 0.76rem;
+}
+
+.bulk-issues-table {
+  overflow: auto;
+  max-height: 420px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.bulk-issues-row {
+  display: grid;
+  grid-template-columns: 70px minmax(100px, 0.7fr) minmax(130px, 0.8fr) minmax(260px, 2fr);
+  gap: 10px;
+  align-items: start;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.78rem;
+}
+
+.bulk-issues-row:last-child {
+  border-bottom: 0;
+}
+
+.bulk-issues-row.heading {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-subtle);
+  font-weight: 750;
+}
+
+.bulk-issues-row code {
+  overflow-wrap: anywhere;
+  font-size: 0.73rem;
+}
+
+@media (max-width: 900px) {
+  .bulk-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-entities {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .bulk-header,
+  .bulk-workspace-head,
+  .bulk-issues-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .bulk-workspace-head .bulk-download-actions {
+    justify-content: flex-start;
+  }
+
+  .bulk-entities {
+    grid-template-columns: 1fr;
+  }
+
+  .bulk-issues-row {
+    grid-template-columns: 55px 100px 120px minmax(220px, 1fr);
+  }
+}
