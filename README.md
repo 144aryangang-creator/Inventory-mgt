@@ -9,8 +9,8 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
 - Main branch: foundation work is not merged yet
-- Database CI: **GREEN** — run `40977150838`
-- Application CI: **GREEN** — run `40977497709`
+- Database CI: **GREEN** — run `40978061028`
+- Application CI: **GREEN** — run `40978303009`
 - Production deployment: **not started**
 - Production credentials/customer data: **not configured or committed**
 
@@ -40,8 +40,11 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 - atomic receipt + invoice-allocation flow
 - immutable partial sales returns with `return_in` stock movements
 - over-return protection + return-aware invoice-cancellation guard
+- return-linked issued credit notes derived from original invoice snapshots/rates
+- over-credit protection + cancelled-credit eligibility release
 - Payments web workspace with receipt/allocation correction controls
 - Invoice fulfilment web workflow with partial sales-return controls/history
+- Invoice return-credit workflow with credit-note status/history
 - React auth shell + tenant switcher
 - reproducible npm lockfile + read-only CI
 
@@ -63,6 +66,7 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 | Tax/money math | PostgreSQL `numeric`; decimal strings across JS boundaries |
 | Payments | Immutable receipt/allocation/reversal ledgers |
 | Sales returns | Immutable return ledger + `return_in` inventory movements |
+| Return credits | Separate immutable linkage from physical return to issued credit note |
 | CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
 
@@ -93,6 +97,10 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 23. Sales returns never rewrite fulfilment rows; stock restoration uses `return_in` movements.
 24. Aggregate return quantity cannot exceed the original fulfilled quantity for a line.
 25. A fulfilled invoice cannot be cancelled while any fulfilled stock quantity remains unreturned.
+26. Physical sales returns and financial credit notes remain separate immutable ledgers with explicit linkage.
+27. A return credit note derives seller/buyer/item snapshots, price, discount and tax rates from the original issued invoice.
+28. Active credited quantity cannot exceed the returned quantity for the linked return line.
+29. Cancelling a return-linked credit note releases only its financial credit eligibility; it does not alter stock-return history.
 
 ## Database
 
@@ -158,6 +166,18 @@ Implemented:
 - PostgreSQL-built legal/address/tax/item snapshots
 - browser item snapshot JSON is ignored
 
+`20261030002200_sales_return_credit_notes.sql` adds financial correction linkage for physical returns.
+
+- each return-credit link is immutable and tenant-scoped
+- credit note is linked to the original tax invoice
+- credit lines copy original issued item snapshots, price, UOM, HSN/SAC and tax rates
+- partial credit derives taxable/discount values proportionally in PostgreSQL
+- return credit is created and issued atomically
+- exact credited quantity is linked back to the immutable return line
+- aggregate active credit cannot exceed returned quantity
+- cancelled credit notes release active credit eligibility for replacement corrections
+- retries are idempotent and accepted credits are audited
+
 ### Sales fulfilment + returns
 
 `20261030001400_sales_fulfillment.sql` implements full, one-warehouse sales fulfilment after invoice issue.
@@ -179,7 +199,7 @@ Implemented:
 - return header/line rows are immutable
 - invoice cancellation remains blocked until every fulfilled stock-backed quantity has been returned
 
-Not yet implemented: partial/multi-warehouse outbound fulfilment and financial credit-note linkage for returned quantities.
+Not yet implemented: partial/multi-warehouse outbound fulfilment.
 
 ### Customer payments
 
@@ -228,6 +248,7 @@ Rules:
 19. `20261030001900_inventory_transfer_audit_idempotency.sql`
 20. `20261030002000_payment_reversals.sql`
 21. `20261030002100_sales_returns.sql`
+22. `20261030002200_sales_return_credit_notes.sql`
 
 Do not reuse an existing migration version.
 
@@ -248,8 +269,9 @@ Do not reuse an existing migration version.
 13. `013_inventory_master_workflows.test.sql` — 27 assertions
 14. `014_payment_reversals.test.sql` — 20 assertions
 15. `015_sales_returns.test.sql` — 16 assertions
+16. `016_sales_return_credit_notes.test.sql` — 25 assertions
 
-Database CI rebuilds the complete migration chain, lints the schema, runs suites `001–015`, and shuts Supabase down cleanly.
+Database CI rebuilds the complete migration chain, lints the schema, runs suites `001–016`, and shuts Supabase down cleanly.
 
 ## API
 
@@ -262,7 +284,7 @@ Implemented domains:
 - seller billing profiles
 - inventory
 - financial documents
-- sales fulfilment + returns
+- sales fulfilment + returns + return-linked credits
 - customer payments + reversals
 
 ### Inventory API
@@ -304,10 +326,12 @@ Mounted beneath `/v1/financial-documents`:
 - fulfil an issued stock-backed invoice
 - create a partial sales return against exact fulfilment-line IDs
 - read immutable return headers/lines
+- atomically create + issue a credit note from exact returned quantities
+- read return-credit links, allocated quantities and credit-note status
 
 ## Shared contracts
 
-`packages/contracts` validates exact decimal strings, organizations, parties, GST/seller profiles, invoices/taxes, fulfilment/returns, customer payments/reversals and Inventory workspace mutations/queries.
+`packages/contracts` validates exact decimal strings, organizations, parties, GST/seller profiles, invoices/taxes, fulfilment/returns/return credits, customer payments/reversals and Inventory workspace mutations/queries.
 
 ## Web application
 
@@ -348,7 +372,10 @@ Database rules, not UI state, determine whether actions are permitted.
 - warehouse fulfilment for stock-backed invoices
 - partial sales-return form using immutable fulfilment-line references
 - return history display
-- return/cancellation limits remain PostgreSQL-authoritative
+- return-linked credit-note issue action
+- existing credit-note status/quantity history per return
+- original invoice snapshots/prices/GST drive return credits; browser does not provide financial calculations
+- return/credit/cancellation limits remain PostgreSQL-authoritative
 
 ### Payments workspace
 
@@ -366,17 +393,17 @@ Database rules, not UI state, determine whether actions are permitted.
 
 ### Database CI — GREEN
 
-Run `40977150838`:
+Run `40978061028`:
 
 - Supabase startup: passed
-- migration rebuild through `20261030002100`: passed
+- migration rebuild through `20261030002200`: passed
 - schema lint: passed
-- pgTAP suites `001–015`: passed
+- pgTAP suites `001–016`: passed
 - clean shutdown: passed
 
 ### Application CI — GREEN
 
-Run `40977497709`:
+Run `40978303009`:
 
 - `npm ci`: passed
 - lockfile drift check: passed
@@ -389,30 +416,29 @@ Run `40977497709`:
 
 High priority:
 
-1. **Sales-return financial correction** — link returned quantities to an explicit credit-note workflow without rewriting the original invoice or return ledger.
-2. **PDF/print invoice generation** from immutable issued snapshots/totals.
-3. **Credit/debit note web workflow** — backend linkage exists; complete user-facing creation/issue flow.
-4. **Partial and multi-warehouse outbound fulfilment**.
-5. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
-6. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
-7. Browser E2E/Playwright coverage.
-8. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
+1. **PDF/print financial documents** — printable/downloadable tax invoice and credit/debit note output from immutable issued snapshots/totals.
+2. **General credit/debit note web workflow** — return-linked credit notes are complete; add UI for non-return commercial adjustments using existing linked-document core.
+3. **Partial and multi-warehouse outbound fulfilment**.
+4. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
+5. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
+6. Browser E2E/Playwright coverage.
+7. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
 
 ## Next engineering task
 
-**Link sales returns to the financial credit-note workflow.**
+**Implement print/PDF output for immutable issued financial documents.**
 
 Recommended order:
 
-1. define the immutable association between a sales return and its credit note
-2. prevent credited quantity/value from exceeding eligible returned quantity/value
-3. build credit-note lines from authoritative original invoice snapshots/rates/tax treatment rather than browser-supplied calculations
-4. keep stock return and financial credit as separate auditable events while linking them explicitly
-5. expose return-to-credit-note API workflow with idempotency
-6. add Invoices UI action/status for uncredited vs credited returns
-7. add pgTAP tests for partial credits, duplicate credits, over-credit, wrong invoice/tenant, cancellation and retries
+1. define a single print view model from issued `financial_documents`, lines and taxes
+2. render tax invoice / credit note / debit note labels and linked-document reference correctly
+3. render seller, bill-to, ship-to, GSTIN, HSN/SAC, tax breakup and totals exclusively from immutable snapshots/totals
+4. create a print-optimized web route/component with deterministic layout and no editable controls
+5. support browser Print / Save as PDF first without introducing a server PDF dependency
+6. add component/data-shaping tests for invoice and credit-note output
+7. then evaluate server-side downloadable PDF only if a stable product need remains
 
-After that: PDF/print invoice output, partial/multi-warehouse fulfilment, purchase workflow, E2E tests and production hardening.
+After that: general credit/debit-note UX, partial/multi-warehouse fulfilment, purchase workflow, E2E tests and production hardening.
 
 ## Customization rule
 
