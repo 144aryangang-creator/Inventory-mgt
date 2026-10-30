@@ -35,8 +35,13 @@ jobs:
         with:
           version: 2.122.0
 
-      - name: Start local Supabase
-        run: supabase start
+      # Database CI does not need API gateway, Auth server, Studio, Storage,
+      # Realtime, Functions, analytics, mail, metadata, vector or pooler services.
+      # Keeping only Postgres reduces CI startup time and external image pulls.
+      - name: Start local Supabase database
+        run: >-
+          supabase start
+          -x gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
 
       - name: Rebuild database from migrations
         run: supabase db reset --local --no-seed
