@@ -49,7 +49,22 @@ salesFulfillmentRoutes.get('/:documentId/fulfillment', async (c) => {
     return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
   }
 
-  return c.json({ data: fulfillment, requestId: c.get('requestId') })
+  if (!fulfillment) return c.json({ data: null, lines: [], requestId: c.get('requestId') })
+
+  const { data: lines, error: lineError } = await c
+    .get('supabase')
+    .from('sales_fulfillment_lines')
+    .select('financial_document_line_id,item_id,inventory_movement_id,quantity,created_at')
+    .eq('organization_id', parsed.data.organizationId)
+    .eq('fulfillment_id', fulfillment.id)
+    .order('created_at', { ascending: true })
+
+  if (lineError) {
+    console.error('sales_fulfillment_lines_read_failed', { requestId: c.get('requestId'), code: lineError.code })
+    return c.json({ error: 'request_failed', requestId: c.get('requestId') }, 500)
+  }
+
+  return c.json({ data: fulfillment, lines: lines ?? [], requestId: c.get('requestId') })
 })
 
 salesFulfillmentRoutes.post('/:documentId/fulfill', async (c) => {
