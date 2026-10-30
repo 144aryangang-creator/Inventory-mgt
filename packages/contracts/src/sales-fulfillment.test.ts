@@ -3,7 +3,9 @@ import {
   fulfillSalesInvoiceSchema,
   inventoryReferenceQuerySchema,
   issueSalesReturnCreditNoteSchema,
+  postSalesFulfillmentSchema,
   returnSalesFulfillmentSchema,
+  salesFulfillmentHistoryQuerySchema,
 } from './sales-fulfillment'
 
 const organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
@@ -14,7 +16,7 @@ const fulfillmentLineId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 const salesReturnId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 describe('sales fulfillment contracts', () => {
-  it('accepts exact identifiers and idempotency key', () => {
+  it('accepts exact identifiers and idempotency key for legacy full fulfillment', () => {
     expect(fulfillSalesInvoiceSchema.parse({
       organizationId,
       documentId,
@@ -26,6 +28,42 @@ describe('sales fulfillment contracts', () => {
   it('rejects malformed identifiers and empty request keys', () => {
     expect(fulfillSalesInvoiceSchema.safeParse({ organizationId, documentId: '../invoice', warehouseId, requestKey: 'x' }).success).toBe(false)
     expect(fulfillSalesInvoiceSchema.safeParse({ organizationId, documentId, warehouseId, requestKey: ' ' }).success).toBe(false)
+  })
+
+  it('accepts exact decimal partial fulfillment quantities', () => {
+    expect(postSalesFulfillmentSchema.safeParse({
+      organizationId,
+      documentId,
+      warehouseId,
+      lines: [{ financialDocumentLineId: fulfillmentLineId, quantity: '1.250000' }],
+      requestKey: 'partial-1',
+    }).success).toBe(true)
+
+    expect(postSalesFulfillmentSchema.safeParse({
+      organizationId,
+      documentId,
+      warehouseId,
+      lines: [{ financialDocumentLineId: fulfillmentLineId, quantity: 1.25 }],
+      requestKey: 'partial-1',
+    }).success).toBe(false)
+  })
+
+  it('rejects duplicate original invoice lines in one fulfillment posting', () => {
+    expect(postSalesFulfillmentSchema.safeParse({
+      organizationId,
+      documentId,
+      warehouseId,
+      lines: [
+        { financialDocumentLineId: fulfillmentLineId, quantity: '1' },
+        { financialDocumentLineId: fulfillmentLineId, quantity: '1' },
+      ],
+      requestKey: 'partial-2',
+    }).success).toBe(false)
+  })
+
+  it('validates fulfillment history identifiers', () => {
+    expect(salesFulfillmentHistoryQuerySchema.safeParse({ organizationId, documentId }).success).toBe(true)
+    expect(salesFulfillmentHistoryQuerySchema.safeParse({ organizationId, documentId: 'bad' }).success).toBe(false)
   })
 
   it('validates exact decimal sales return quantities', () => {
