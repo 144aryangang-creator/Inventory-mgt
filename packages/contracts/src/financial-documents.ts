@@ -45,44 +45,36 @@ export const financialDocumentTaxSchema = z.object({
 })
 export type FinancialDocumentTaxInput = z.infer<typeof financialDocumentTaxSchema>
 
-export const createFinancialDocumentDraftSchema = z
-  .object({
-    organizationId: z.uuid(),
-    supplierProfileId: z.uuid(),
-    documentType: financialDocumentTypeSchema,
-    documentDate: z.string().regex(isoDatePattern, 'Document date must use YYYY-MM-DD'),
-    seriesCode: z
-      .string()
-      .trim()
-      .min(1, 'Series code is required')
-      .max(8)
-      .regex(seriesPattern, 'Series can contain letters, numbers and hyphens')
-      .transform((value) => value.toUpperCase()),
-    supplyType: supplyTypeSchema,
-    recipientPartyId: z.uuid(),
-    billingAddressId: z.uuid(),
-    shippingAddressId: z.uuid().nullable().optional(),
-    recipientTaxRegistrationId: z.uuid().nullable().optional(),
-    linkedDocumentId: z.uuid().nullable().optional(),
-    currencyCode: z
-      .string()
-      .trim()
-      .regex(/^[A-Za-z]{3}$/, 'Currency must contain 3 letters')
-      .transform((value) => value.toUpperCase())
-      .default('INR'),
-    placeOfSupplyStateCode: optionalTrimmedText(20),
-    reverseCharge: z.boolean().default(false),
-    notes: optionalTrimmedText(2000),
-  })
-  .superRefine((value, ctx) => {
-    if (value.documentType === 'tax_invoice' && value.linkedDocumentId) {
-      ctx.addIssue({ code: 'custom', path: ['linkedDocumentId'], message: 'Tax invoices cannot link to another financial document' })
-    }
-
-    if (value.documentType !== 'tax_invoice' && !value.linkedDocumentId) {
-      ctx.addIssue({ code: 'custom', path: ['linkedDocumentId'], message: 'Credit and debit notes must reference an issued tax invoice' })
-    }
-  })
+// The normal draft route is tax-invoice only. Credit/debit notes are created exclusively through
+// controlled adjustment workflows that derive immutable identity/tax data from the original invoice.
+export const createFinancialDocumentDraftSchema = z.object({
+  organizationId: z.uuid(),
+  supplierProfileId: z.uuid(),
+  documentType: z.literal('tax_invoice'),
+  documentDate: z.string().regex(isoDatePattern, 'Document date must use YYYY-MM-DD'),
+  seriesCode: z
+    .string()
+    .trim()
+    .min(1, 'Series code is required')
+    .max(8)
+    .regex(seriesPattern, 'Series can contain letters, numbers and hyphens')
+    .transform((value) => value.toUpperCase()),
+  supplyType: supplyTypeSchema,
+  recipientPartyId: z.uuid(),
+  billingAddressId: z.uuid(),
+  shippingAddressId: z.uuid().nullable().optional(),
+  recipientTaxRegistrationId: z.uuid().nullable().optional(),
+  linkedDocumentId: z.null().optional(),
+  currencyCode: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z]{3}$/, 'Currency must contain 3 letters')
+    .transform((value) => value.toUpperCase())
+    .default('INR'),
+  placeOfSupplyStateCode: optionalTrimmedText(20),
+  reverseCharge: z.boolean().default(false),
+  notes: optionalTrimmedText(2000),
+})
 export type CreateFinancialDocumentDraftInput = z.infer<typeof createFinancialDocumentDraftSchema>
 
 export const upsertFinancialDocumentLineSchema = z
@@ -142,3 +134,49 @@ export const financialDocumentDetailQuerySchema = z.object({
   documentId: z.uuid(),
 })
 export type FinancialDocumentDetailQuery = z.infer<typeof financialDocumentDetailQuerySchema>
+
+export const invoiceAdjustmentTypeSchema = z.enum(['credit_note', 'debit_note'])
+export type InvoiceAdjustmentType = z.infer<typeof invoiceAdjustmentTypeSchema>
+
+export const invoiceAdjustmentLineSchema = z.object({
+  originalLineId: z.uuid(),
+  basisQuantity: positiveDecimalSchema,
+  taxableAdjustment: positiveDecimalSchema,
+})
+export type InvoiceAdjustmentLineInput = z.infer<typeof invoiceAdjustmentLineSchema>
+
+export const issueInvoiceAdjustmentSchema = z.object({
+  organizationId: z.uuid(),
+  originalInvoiceId: z.uuid(),
+  adjustmentType: invoiceAdjustmentTypeSchema,
+  lines: z.array(invoiceAdjustmentLineSchema).min(1, 'At least one adjustment line is required').max(200),
+  documentDate: z.string().regex(isoDatePattern, 'Document date must use YYYY-MM-DD'),
+  seriesCode: z
+    .string()
+    .trim()
+    .min(1, 'Series code is required')
+    .max(8)
+    .regex(seriesPattern, 'Series can contain letters, numbers and hyphens')
+    .transform((value) => value.toUpperCase()),
+  reason: z.string().trim().min(1, 'Adjustment reason is required').max(240),
+  requestKey: z.string().trim().min(1, 'Request key is required').max(128),
+}).superRefine((value, ctx) => {
+  const lineIds = new Set<string>()
+  value.lines.forEach((line, index) => {
+    if (lineIds.has(line.originalLineId)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lines', index, 'originalLineId'],
+        message: 'Each original invoice line may appear only once per adjustment',
+      })
+    }
+    lineIds.add(line.originalLineId)
+  })
+})
+export type IssueInvoiceAdjustmentInput = z.infer<typeof issueInvoiceAdjustmentSchema>
+
+export const financialAdjustmentHistoryQuerySchema = z.object({
+  organizationId: z.uuid(),
+  originalInvoiceId: z.uuid(),
+})
+export type FinancialAdjustmentHistoryQuery = z.infer<typeof financialAdjustmentHistoryQuerySchema>
