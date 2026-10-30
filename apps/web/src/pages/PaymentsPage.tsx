@@ -1,4 +1,10 @@
-import { paymentMethodSchema, recordAndAllocateInvoicePaymentSchema, type PaymentMethod } from '@inventory/contracts/customer-payments'
+import {
+  paymentMethodSchema,
+  recordAndAllocateInvoicePaymentSchema,
+  reverseCustomerPaymentSchema,
+  reversePaymentAllocationSchema,
+  type PaymentMethod,
+} from '@inventory/contracts/customer-payments'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ApiError, apiFetch } from '../lib/api'
 import { useOrganization } from '../organizations/OrganizationProvider'
@@ -40,9 +46,32 @@ type CustomerPayment = {
   created_at: string
 }
 
+type PaymentAllocation = {
+  id: string
+  payment_id: string
+  financial_document_id: string
+  amount: string | number
+  request_key: string
+  created_at: string
+}
+
+type AllocationReversal = {
+  id: string
+  allocation_id: string
+  amount: string | number
+  reason: string
+  request_key: string
+  created_at: string
+}
+
+type CorrectionTarget =
+  | { kind: 'allocation'; id: string; label: string }
+  | { kind: 'payment'; id: string; label: string }
+
 type ListResponse<T> = { data: T[]; requestId: string }
 type DetailResponse = { data: FinancialDocumentDetail; requestId: string }
 type BalanceResponse = { data: InvoiceBalance | null; requestId: string }
+type AllocationResponse = { data: PaymentAllocation[]; reversals: AllocationReversal[]; requestId: string }
 
 const paymentMethods = paymentMethodSchema.options
 
@@ -67,8 +96,12 @@ function friendlyError(error: unknown): string {
     const messages: Record<string, string> = {
       forbidden: 'Your role does not allow this payment action.',
       payment_or_invoice_not_found: 'The selected customer or invoice is no longer available.',
+      payment_not_found: 'The selected receipt is no longer available.',
+      allocation_not_found: 'The selected allocation is no longer available.',
       payment_idempotency_conflict: 'This payment request conflicts with an earlier request.',
       allocation_not_allowed: 'The receipt cannot be applied. Check the invoice balance, customer and currency.',
+      reversal_idempotency_conflict: 'This correction request key conflicts with an earlier correction.',
+      reversal_not_allowed: 'This correction exceeds the amount currently available to reverse. Reverse allocations first if needed.',
     }
     return messages[error.code] ?? `Request failed (${error.status})${error.requestId ? ` · ${error.requestId}` : ''}`
   }
@@ -87,6 +120,8 @@ export function PaymentsPage() {
   const [detail, setDetail] = useState<FinancialDocumentDetail | null>(null)
   const [balance, setBalance] = useState<InvoiceBalance | null>(null)
   const [payments, setPayments] = useState<CustomerPayment[]>([])
+  const [allocations, setAllocations] = useState<PaymentAllocation[]>([])
+  const [allocationReversals, setAllocationReversals] = useState<AllocationReversal[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -95,6 +130,9 @@ export function PaymentsPage() {
   const [method, setMethod] = useState<PaymentMethod>('upi')
   const [reference, setReference] = useState('')
   const [notes, setNotes] = useState('')
+  const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget | null>(null)
+  const [correctionAmount, setCorrectionAmount] = useState('')
+  const [correctionReason, setCorrectionReason] = useState('')
 
   const selectedInvoice = useMemo(
     () => invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? null,
@@ -119,6 +157,8 @@ export function PaymentsPage() {
       setDetail(null)
       setBalance(null)
       setPayments([])
+      setAllocations([])
+      setAllocationReversals([])
       return
     }
 
@@ -127,7 +167,7 @@ export function PaymentsPage() {
     )
     const customerPartyId = detailResponse.data.document.recipient_party_id
 
-    const [balanceResponse, paymentsResponse] = await Promise.all([
+    const [balanceResponse, paymentsResponse, allocationResponse] = await Promise.all([
       apiFetch<BalanceResponse>(
         `/v1/customer-payments/invoice/${encodeURIComponent(invoiceId)}/balance?organizationId=${encodeURIComponent(activeOrganization.id)}`,
       ),
@@ -136,11 +176,16 @@ export function PaymentsPage() {
             `/v1/customer-payments?organizationId=${encodeURIComponent(activeOrganization.id)}&customerPartyId=${encodeURIComponent(customerPartyId)}&limit=20`,
           )
         : Promise.resolve({ data: [], requestId: '' }),
+      apiFetch<AllocationResponse>(
+        `/v1/customer-payments/invoice/${encodeURIComponent(invoiceId)}/allocations?organizationId=${encodeURIComponent(activeOrganization.id)}`,
+      ),
     ])
 
     setDetail(detailResponse.data)
     setBalance(balanceResponse.data)
     setPayments(paymentsResponse.data)
+    setAllocations(allocationResponse.data)
+    setAllocationReversals(allocationResponse.reversals)
     setAmount(String(balanceResponse.data?.balance_due ?? ''))
   }, [activeOrganization])
 
@@ -161,6 +206,7 @@ export function PaymentsPage() {
     }
     setLoading(true)
     setError(null)
+    setCorrectionTarget(null)
     loadInvoicePaymentState(selectedInvoiceId)
       .catch((caught) => setError(friendlyError(caught)))
       .finally(() => setLoading(false))
@@ -207,6 +253,52 @@ export function PaymentsPage() {
     }
   }
 
+  function startCorrection(target: CorrectionTarget, suggestedAmount: string) {
+    setCorrectionTarget(target)
+    setCorrectionAmount(suggestedAmount)
+    setCorrectionReason('')
+    setError(null)
+  }
+
+  async function submitCorrection(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!activeOrganization || !selectedInvoice || !correctionTarget) return
+
+    const requestKey = `web-${correctionTarget.kind}-reversal-${correctionTarget.id}-${crypto.randomUUID()}`
+    const raw = {
+      organizationId: activeOrganization.id,
+      amount: correctionAmount,
+      reason: correctionReason,
+      requestKey,
+    }
+
+    const parsed = correctionTarget.kind === 'allocation'
+      ? reversePaymentAllocationSchema.safeParse({ ...raw, allocationId: correctionTarget.id })
+      : reverseCustomerPaymentSchema.safeParse({ ...raw, paymentId: correctionTarget.id })
+
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message ?? 'Check the correction details.')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    try {
+      const endpoint = correctionTarget.kind === 'allocation'
+        ? `/v1/customer-payments/allocations/${encodeURIComponent(correctionTarget.id)}/reverse`
+        : `/v1/customer-payments/${encodeURIComponent(correctionTarget.id)}/reverse`
+      await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(parsed.data) })
+      setCorrectionTarget(null)
+      setCorrectionAmount('')
+      setCorrectionReason('')
+      await loadInvoicePaymentState(selectedInvoice.id)
+    } catch (caught) {
+      setError(friendlyError(caught))
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (organizationLoading) return <div className="centered-panel-state">Loading organization…</div>
   if (!activeOrganization) return <section className="panel"><h1>Payments</h1><p className="muted">Create an organization first.</p></section>
 
@@ -216,7 +308,7 @@ export function PaymentsPage() {
         <div>
           <p className="eyebrow">{activeOrganization.name}</p>
           <h1>Payments</h1>
-          <p className="muted">Record immutable customer receipts and atomically apply them to issued invoices.</p>
+          <p className="muted">Record immutable customer receipts and apply corrections through append-only reversal entries.</p>
         </div>
       </div>
 
@@ -255,7 +347,7 @@ export function PaymentsPage() {
 
               <div className="payment-balance-grid">
                 <div><span>Invoice total</span><strong>{selectedInvoice.currency_code} {String(balance.grand_total)}</strong></div>
-                <div><span>Allocated</span><strong>{selectedInvoice.currency_code} {String(balance.allocated_total)}</strong></div>
+                <div><span>Net allocated</span><strong>{selectedInvoice.currency_code} {String(balance.allocated_total)}</strong></div>
                 <div><span>Balance due</span><strong>{selectedInvoice.currency_code} {String(balance.balance_due)}</strong></div>
               </div>
 
@@ -272,7 +364,30 @@ export function PaymentsPage() {
                   <p className="payment-note payment-full-field">The receipt and its invoice allocation are committed in one database transaction. If allocation fails, no receipt is left behind.</p>
                   <div className="payment-full-field"><button className="primary-button" type="submit" disabled={saving}>{saving ? 'Recording…' : 'Record and apply receipt'}</button></div>
                 </form>
-              ) : <p className="payment-paid-note">This invoice is fully paid.</p>}
+              ) : <p className="payment-paid-note">This invoice is fully paid. Use allocation corrections below if a recorded application must be reversed.</p>}
+
+              <div className="payment-history">
+                <div className="panel-heading"><h3>Invoice allocation history</h3><span className="record-count">{allocations.length} entries</span></div>
+                {allocations.length === 0 ? <p className="empty-state">No payment allocations recorded for this invoice.</p> : (
+                  <div className="payment-history-list">
+                    {allocations.map((allocation) => {
+                      const reversals = allocationReversals.filter((entry) => entry.allocation_id === allocation.id)
+                      return (
+                        <article key={allocation.id}>
+                          <span>
+                            <strong>{selectedInvoice.currency_code} {String(allocation.amount)}</strong>
+                            <small>Original allocation · {new Date(allocation.created_at).toLocaleString()}</small>
+                            {reversals.map((reversal) => (
+                              <small key={reversal.id}>Reversed {selectedInvoice.currency_code} {String(reversal.amount)} · {reversal.reason}</small>
+                            ))}
+                          </span>
+                          <button className="text-button" type="button" onClick={() => startCorrection({ kind: 'allocation', id: allocation.id, label: 'Reverse allocation' }, String(allocation.amount))}>Reverse</button>
+                        </article>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
 
               <div className="payment-history">
                 <div className="panel-heading"><h3>Recent customer receipts</h3><span className="record-count">{payments.length} shown</span></div>
@@ -282,11 +397,25 @@ export function PaymentsPage() {
                       <article key={payment.id}>
                         <span><strong>{payment.currency_code} {String(payment.amount)}</strong><small>{payment.payment_date} · {payment.method.replace('_', ' ')}</small></span>
                         <span>{payment.reference ?? 'No reference'}</span>
+                        <button className="text-button" type="button" onClick={() => startCorrection({ kind: 'payment', id: payment.id, label: 'Refund receipt' }, String(payment.amount))}>Refund</button>
                       </article>
                     ))}
                   </div>
                 )}
               </div>
+
+              {correctionTarget ? (
+                <form className="payment-form" onSubmit={submitCorrection}>
+                  <h3>{correctionTarget.label}</h3>
+                  <label>Amount<input inputMode="decimal" required value={correctionAmount} onChange={(event) => setCorrectionAmount(event.target.value)} /></label>
+                  <label className="payment-full-field">Reason<textarea required maxLength={240} value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)} placeholder="Why is this correction required?" /></label>
+                  <p className="payment-note payment-full-field">Corrections never edit or delete the original ledger entry. The database validates the remaining reversible amount and appends an audited reversal.</p>
+                  <div className="payment-full-field">
+                    <button className="primary-button" type="submit" disabled={saving}>{saving ? 'Saving correction…' : 'Record correction'}</button>{' '}
+                    <button className="secondary-button" type="button" disabled={saving} onClick={() => setCorrectionTarget(null)}>Cancel</button>
+                  </div>
+                </form>
+              ) : null}
             </>
           )}
         </section>
