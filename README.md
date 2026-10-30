@@ -9,8 +9,8 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
 - Main branch: foundation work is not merged yet
-- Database CI: **GREEN** — run `40976131112`
-- Application CI: **GREEN** — run `40976059248`
+- Database CI: **GREEN** — run `40977150838`
+- Application CI: **GREEN** — run `40977497709`
 - Production deployment: **not started**
 - Production credentials/customer data: **not configured or committed**
 
@@ -34,9 +34,14 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 - atomic full sales-invoice fulfilment from one warehouse
 - immutable/idempotent customer payment receipts
 - immutable payment allocations
-- derived invoice payment balance/status
+- immutable partial/idempotent payment-allocation reversals
+- immutable partial/idempotent customer-payment refunds/reversals
+- reversal-aware invoice payment balance/status
 - atomic receipt + invoice-allocation flow
-- Payments web workspace
+- immutable partial sales returns with `return_in` stock movements
+- over-return protection + return-aware invoice-cancellation guard
+- Payments web workspace with receipt/allocation correction controls
+- Invoice fulfilment web workflow with partial sales-return controls/history
 - React auth shell + tenant switcher
 - reproducible npm lockfile + read-only CI
 
@@ -56,7 +61,8 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 | Legal/tax identity | PostgreSQL-built immutable snapshots |
 | Invoice item identity | PostgreSQL-built immutable item snapshots |
 | Tax/money math | PostgreSQL `numeric`; decimal strings across JS boundaries |
-| Payments | Immutable receipt + allocation ledgers |
+| Payments | Immutable receipt/allocation/reversal ledgers |
+| Sales returns | Immutable return ledger + `return_in` inventory movements |
 | CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
 
@@ -78,10 +84,15 @@ Configurable multi-tenant inventory + invoicing SaaS. Security and business inva
 14. Schema changes use unique version-controlled migrations.
 15. Historical invoice snapshots never depend on later master-data edits.
 16. Clients cannot provide authoritative seller/buyer/item snapshots or calculated tax values.
-17. Payment receipts and allocations are immutable ledger records.
+17. Payment receipts, allocations and reversals are immutable ledger records.
 18. Payment allocation must match invoice customer/currency and cannot over-allocate.
-19. Direct authenticated item/warehouse mutations are revoked; audited RPCs are required.
-20. Items/warehouses with non-zero stock cannot be archived.
+19. A payment refund cannot consume value still net-allocated to invoices.
+20. An allocation/payment cannot be reversed beyond its remaining reversible amount.
+21. Direct authenticated item/warehouse mutations are revoked; audited RPCs are required.
+22. Items/warehouses with non-zero stock cannot be archived.
+23. Sales returns never rewrite fulfilment rows; stock restoration uses `return_in` movements.
+24. Aggregate return quantity cannot exceed the original fulfilled quantity for a line.
+25. A fulfilled invoice cannot be cancelled while any fulfilled stock quantity remains unreturned.
 
 ## Database
 
@@ -147,7 +158,7 @@ Implemented:
 - PostgreSQL-built legal/address/tax/item snapshots
 - browser item snapshot JSON is ignored
 
-### Sales fulfilment
+### Sales fulfilment + returns
 
 `20261030001400_sales_fulfillment.sql` implements full, one-warehouse sales fulfilment after invoice issue.
 
@@ -155,9 +166,20 @@ Implemented:
 - deterministic movement keys prevent duplicates
 - insufficient stock rolls back the entire fulfilment
 - second fulfilment is rejected
-- fulfilled invoice cancellation is blocked until a reversal workflow exists
+- fulfilment records are immutable
 
-Not yet implemented: partial/multi-warehouse fulfilment and returns/reversal.
+`20261030002100_sales_returns.sql` adds immutable partial sales returns.
+
+- each return references the original fulfilment and fulfilment line
+- return quantities are exact decimal strings at JS boundaries and PostgreSQL `numeric` in the database
+- returned stock posts as `return_in` to the original fulfilment warehouse
+- partial/multiple returns are allowed
+- aggregate returned quantity cannot exceed fulfilled quantity
+- request keys are idempotent and audited
+- return header/line rows are immutable
+- invoice cancellation remains blocked until every fulfilled stock-backed quantity has been returned
+
+Not yet implemented: partial/multi-warehouse outbound fulfilment and financial credit-note linkage for returned quantities.
 
 ### Customer payments
 
@@ -165,7 +187,23 @@ Not yet implemented: partial/multi-warehouse fulfilment and returns/reversal.
 
 `20261030001600_atomic_invoice_receipt.sql` adds atomic `record_and_allocate_invoice_payment(...)` so failed allocation cannot leave an orphan receipt.
 
-Not yet implemented: payment reversal/refund/correction workflow.
+`20261030002000_payment_reversals.sql` adds immutable correction ledgers and RPCs:
+
+- `payment_allocation_reversals`
+- `customer_payment_reversals`
+- `reverse_payment_allocation(...)`
+- `reverse_customer_payment(...)`
+
+Rules:
+
+- original receipts/allocations are never updated or deleted
+- partial reversals/refunds are allowed
+- retries with identical request keys are idempotent
+- over-reversal is rejected
+- payment refunds may use only currently unallocated receipt value
+- invoice balance/status uses net allocations after reversals
+- invoice cancellation checks net allocation rather than gross historical allocation
+- all accepted corrections are audited
 
 ## Migrations
 
@@ -188,6 +226,8 @@ Not yet implemented: payment reversal/refund/correction workflow.
 17. `20261030001700_financial_line_item_snapshot_hardening.sql`
 18. `20261030001800_inventory_master_workflows.sql`
 19. `20261030001900_inventory_transfer_audit_idempotency.sql`
+20. `20261030002000_payment_reversals.sql`
+21. `20261030002100_sales_returns.sql`
 
 Do not reuse an existing migration version.
 
@@ -206,8 +246,10 @@ Do not reuse an existing migration version.
 11. `011_atomic_invoice_receipt.test.sql` — 8 assertions
 12. `012_item_snapshot_hardening.test.sql` — 4 assertions
 13. `013_inventory_master_workflows.test.sql` — 27 assertions
+14. `014_payment_reversals.test.sql` — 20 assertions
+15. `015_sales_returns.test.sql` — 16 assertions
 
-Database CI rebuilds the complete migration chain, lints the schema, runs suites `001–013`, and shuts Supabase down cleanly.
+Database CI rebuilds the complete migration chain, lints the schema, runs suites `001–015`, and shuts Supabase down cleanly.
 
 ## API
 
@@ -220,8 +262,8 @@ Implemented domains:
 - seller billing profiles
 - inventory
 - financial documents
-- sales fulfilment
-- customer payments
+- sales fulfilment + returns
+- customer payments + reversals
 
 ### Inventory API
 
@@ -250,10 +292,22 @@ Mounted at `/v1/customer-payments`:
 - allocate an existing receipt
 - read invoice payment balance/status
 - atomically record + allocate an invoice receipt
+- read invoice allocation/reversal history
+- reverse an allocation partially or fully
+- refund/reverse currently unallocated receipt value partially or fully
+
+### Sales fulfilment / return API
+
+Mounted beneath `/v1/financial-documents`:
+
+- read invoice fulfilment + immutable fulfilment lines
+- fulfil an issued stock-backed invoice
+- create a partial sales return against exact fulfilment-line IDs
+- read immutable return headers/lines
 
 ## Shared contracts
 
-`packages/contracts` validates exact decimal strings, organizations, parties, GST/seller profiles, invoices/taxes, fulfilment, customer payments and Inventory workspace mutations/queries.
+`packages/contracts` validates exact decimal strings, organizations, parties, GST/seller profiles, invoices/taxes, fulfilment/returns, customer payments/reversals and Inventory workspace mutations/queries.
 
 ## Web application
 
@@ -270,7 +324,7 @@ Routes:
 
 ### Inventory workspace
 
-`/inventory` now provides:
+`/inventory` provides:
 
 - item list/create/edit/archive
 - warehouse list/create/edit/archive
@@ -292,30 +346,37 @@ Database rules, not UI state, determine whether actions are permitted.
 - issue/cancel
 - immutable issued detail
 - warehouse fulfilment for stock-backed invoices
+- partial sales-return form using immutable fulfilment-line references
+- return history display
+- return/cancellation limits remain PostgreSQL-authoritative
 
 ### Payments workspace
 
 - issued invoice list
-- total / allocated / balance due
+- total / net allocated / balance due
 - unpaid / part-paid / paid status
 - receipt entry and atomic allocation
+- allocation history + reversal history
+- partial/full allocation reversal controls
+- receipt refund/reversal controls
 - recent customer receipts
+- correction reasons are mandatory; originals remain immutable
 
 ## CI / validation
 
 ### Database CI — GREEN
 
-Run `40976131112`:
+Run `40977150838`:
 
 - Supabase startup: passed
-- migration rebuild through `20261030001900`: passed
+- migration rebuild through `20261030002100`: passed
 - schema lint: passed
-- pgTAP suites `001–013`: passed
+- pgTAP suites `001–015`: passed
 - clean shutdown: passed
 
 ### Application CI — GREEN
 
-Run `40976059248`:
+Run `40977497709`:
 
 - `npm ci`: passed
 - lockfile drift check: passed
@@ -328,29 +389,28 @@ Run `40976059248`:
 
 High priority:
 
-1. **Payment corrections** — explicit immutable reversal/refund workflow.
-2. **Sales returns / stock reversals** — return inventory movements + financial correction linkage.
-3. **PDF/print invoice generation** from immutable issued snapshots/totals.
-4. **Credit/debit note web workflow** — backend linkage exists; complete user-facing flow.
-5. **Partial and multi-warehouse fulfilment**.
-6. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
-7. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
-8. Browser E2E/Playwright coverage.
-9. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
+1. **Sales-return financial correction** — link returned quantities to an explicit credit-note workflow without rewriting the original invoice or return ledger.
+2. **PDF/print invoice generation** from immutable issued snapshots/totals.
+3. **Credit/debit note web workflow** — backend linkage exists; complete user-facing creation/issue flow.
+4. **Partial and multi-warehouse outbound fulfilment**.
+5. **Purchase receipts / supplier-side stock intake workflow** beyond manual stock receipt.
+6. Dashboard/reporting, audit-log viewer and CSV/Excel import/export.
+7. Browser E2E/Playwright coverage.
+8. Production deployment, secrets, backups/restore drill, monitoring, MFA and security review.
 
 ## Next engineering task
 
-**Implement immutable payment reversal/refund and sales-return workflows.**
+**Link sales returns to the financial credit-note workflow.**
 
 Recommended order:
 
-1. reversal ledger model for customer payments/allocations
-2. idempotent audited reversal RPCs; never update/delete original receipt/allocation rows
-3. invoice balance calculation including reversals
-4. sales-return inventory flow using reversing/`return_in` movements
-5. link financial credit-note workflow to returned quantities without rewriting the original invoice
-6. API + Payments/Invoices UI for corrections
-7. pgTAP adversarial tests for double reversal, over-reversal, wrong customer/currency and concurrent retries
+1. define the immutable association between a sales return and its credit note
+2. prevent credited quantity/value from exceeding eligible returned quantity/value
+3. build credit-note lines from authoritative original invoice snapshots/rates/tax treatment rather than browser-supplied calculations
+4. keep stock return and financial credit as separate auditable events while linking them explicitly
+5. expose return-to-credit-note API workflow with idempotency
+6. add Invoices UI action/status for uncredited vs credited returns
+7. add pgTAP tests for partial credits, duplicate credits, over-credit, wrong invoice/tenant, cancellation and retries
 
 After that: PDF/print invoice output, partial/multi-warehouse fulfilment, purchase workflow, E2E tests and production hardening.
 
