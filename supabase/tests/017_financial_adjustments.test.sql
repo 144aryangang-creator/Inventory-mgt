@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(35);
+select plan(37);
 
 select has_table('public', 'financial_adjustments', 'financial adjustments table exists');
 select has_table('public', 'financial_adjustment_lines', 'financial adjustment lines table exists');
@@ -61,7 +61,6 @@ insert into public.warehouses (id, organization_id, code, name) values
 set local role authenticated;
 set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 
--- Service invoice: 2 units, taxable 1000, CGST 9%, SGST 9%.
 select public.create_financial_document_draft_from_profiles(
   'a1000000-0000-4000-8000-000000000010', 'a1000000-0000-4000-8000-000000000040',
   'tax_invoice', '2026-10-30', 'INV', 'intra_state',
@@ -80,7 +79,6 @@ select public.issue_financial_document(
   'issue-adjust-service'
 );
 
--- Stock invoice: 10 units x 100 = taxable 1000. Fulfil and return four units, then credit the return.
 select public.post_inventory_movement(
   'a1000000-0000-4000-8000-000000000010', 'a1000000-0000-4000-8000-000000000050',
   'a1000000-0000-4000-8000-000000000060', 'receipt', 20, 50, 'opening_stock', null, 'adjust-opening-stock'
@@ -187,11 +185,7 @@ select results_eq(
   $$select document_type::text, status::text, linked_document_id, grand_total
     from public.financial_documents
     where id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')$$,
-  $$values (
-    'credit_note'::text, 'issued'::text,
-    (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-    354::numeric
-  )$$,
+  $$values ('credit_note'::text, 'issued'::text, (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 354::numeric)$$,
   'commercial credit is issued, linked and uses original GST treatment'
 );
 
@@ -206,10 +200,7 @@ select results_eq(
 select results_eq(
   $$select component::text, rate, amount
     from public.financial_document_line_taxes
-    where line_id = (
-      select id from public.financial_document_lines
-      where document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')
-    ) order by component$$,
+    where line_id = (select id from public.financial_document_lines where document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')) order by component$$,
   $$values ('CGST'::text, 9::numeric, 27::numeric), ('SGST'::text, 9::numeric, 27::numeric)$$,
   'credit line copies original GST components and rates'
 );
@@ -219,253 +210,107 @@ select results_eq(
       'a1000000-0000-4000-8000-000000000010',
       (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
       'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')),
-        'basisQuantity', '1', 'taxableAdjustment', '300'
-      )),
+      jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')), 'basisQuantity', '1', 'taxableAdjustment', '300')),
       '2026-10-30', 'CRN', 'service deficiency', 'service-credit-300'
     )$$,
   $$select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300'$$,
   'identical adjustment request is idempotent'
 );
 
-select results_eq(
-  $$select count(*) from public.financial_adjustments where request_key = 'service-credit-300'$$,
-  array[1::bigint],
-  'idempotent retry creates no duplicate adjustment linkage'
-);
+select results_eq($$select count(*) from public.financial_adjustments where request_key = 'service-credit-300'$$, array[1::bigint], 'idempotent retry creates no duplicate adjustment linkage');
 
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')),
-        'basisQuantity', '1', 'taxableAdjustment', '301'
-      )),
-      '2026-10-30', 'CRN', 'service deficiency', 'service-credit-300'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')), 'basisQuantity', '1', 'taxableAdjustment', '301')), '2026-10-30', 'CRN', 'service deficiency', 'service-credit-300')$$,
   '22023', null, 'same request key cannot be reused for a different adjustment payload'
 );
 
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')),
-        'basisQuantity', '2', 'taxableAdjustment', '800'
-      )),
-      '2026-10-30', 'CRN', 'too much credit', 'service-credit-over'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')), 'basisQuantity', '2', 'taxableAdjustment', '800')), '2026-10-30', 'CRN', 'too much credit', 'service-credit-over')$$,
   '23514', null, 'active commercial credits cannot exceed original taxable value'
 );
 
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')),
-        'basisQuantity', '3', 'taxableAdjustment', '50'
-      )),
-      '2026-10-30', 'CRN', 'bad basis', 'service-credit-basis-over'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')), 'basisQuantity', '3', 'taxableAdjustment', '50')), '2026-10-30', 'CRN', 'bad basis', 'service-credit-basis-over')$$,
   '23514', null, 'adjustment basis quantity cannot exceed original invoice quantity'
 );
 
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '1', 'taxableAdjustment', '50'
-      )),
-      '2026-10-30', 'CRN', 'wrong line', 'service-credit-wrong-line'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '1', 'taxableAdjustment', '50')), '2026-10-30', 'CRN', 'wrong line', 'service-credit-wrong-line')$$,
   'P0002', null, 'adjustment cannot reference a line from another invoice'
 );
 
 select lives_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'debit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')),
-        'basisQuantity', '2', 'taxableAdjustment', '1500'
-      )),
-      '2026-10-30', 'DBN', 'undercharged service value', 'service-debit-1500'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'debit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment service invoice')), 'basisQuantity', '2', 'taxableAdjustment', '1500')), '2026-10-30', 'DBN', 'undercharged service value', 'service-debit-1500')$$,
   'debit note may increase taxable value beyond the original line value'
 );
 
 select results_eq(
-  $$select document_type::text, status::text, linked_document_id, grand_total
-    from public.financial_documents
-    where id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500')$$,
-  $$values (
-    'debit_note'::text, 'issued'::text,
-    (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-    1770::numeric
-  )$$,
+  $$select document_type::text, status::text, linked_document_id, grand_total from public.financial_documents where id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500')$$,
+  $$values ('debit_note'::text, 'issued'::text, (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 1770::numeric)$$,
   'debit note is issued and linked to original tax invoice'
 );
 
 select results_eq(
-  $$select component::text, rate, amount
-    from public.financial_document_line_taxes
-    where line_id = (
-      select id from public.financial_document_lines
-      where document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500')
-    ) order by component$$,
+  $$select component::text, rate, amount from public.financial_document_line_taxes where line_id = (select id from public.financial_document_lines where document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500')) order by component$$,
   $$values ('CGST'::text, 9::numeric, 135::numeric), ('SGST'::text, 9::numeric, 135::numeric)$$,
   'debit note preserves original GST rates'
 );
 
 select throws_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'cancel original with active corrections'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'cancel original with active corrections')$$,
   '23514', null, 'original invoice cannot be cancelled while active correction documents exist'
 );
 
 select lives_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300'),
-      'credit created in error'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300'), 'credit created in error')$$,
   'commercial credit note can be cancelled without mutating original invoice'
 );
-
 select throws_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'debit still active'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'debit still active')$$,
   '23514', null, 'original cancellation remains blocked while any active correction remains'
 );
-
 select lives_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500'),
-      'debit created in error'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select adjustment_document_id from public.financial_adjustments where request_key = 'service-debit-1500'), 'debit created in error')$$,
   'commercial debit note can be cancelled'
 );
-
 select lives_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment service invoice'),
-      'all commercial corrections cancelled'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment service invoice'), 'all commercial corrections cancelled')$$,
   'service invoice can be cancelled after all linked corrections are cancelled'
 );
 
 reset role;
-select throws_ok(
-  $$update public.financial_adjustments set reason = 'tampered' where request_key = 'service-credit-300'$$,
-  '55000', null, 'financial adjustment headers are immutable even for privileged writes'
-);
-select throws_ok(
-  $$update public.financial_adjustment_lines set taxable_adjustment = 1
-    where adjustment_document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')$$,
-  '55000', null, 'financial adjustment line links are immutable even for privileged writes'
-);
+select throws_ok($$update public.financial_adjustments set reason = 'tampered' where request_key = 'service-credit-300'$$, '55000', null, 'financial adjustment headers are immutable even for privileged writes');
+select throws_ok($$update public.financial_adjustment_lines set taxable_adjustment = 1 where adjustment_document_id = (select adjustment_document_id from public.financial_adjustments where request_key = 'service-credit-300')$$, '55000', null, 'financial adjustment line links are immutable even for privileged writes');
 
 set local role authenticated;
 set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 select results_eq(
-  $$select app_private.active_credited_taxable_for_invoice_line(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'))
-    )$$,
-  array[400::numeric],
-  'shared credit helper includes active return-linked credit taxable value'
+  $$select app_private.active_credited_taxable_for_invoice_line('a1000000-0000-4000-8000-000000000010', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')))$$,
+  array[400::numeric], 'shared credit helper includes active return-linked credit taxable value'
 );
 
 select lives_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '5', 'taxableAdjustment', '500'
-      )),
-      '2026-10-30', 'CRN', 'commercial stock concession', 'stock-credit-500'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '5', 'taxableAdjustment', '500')), '2026-10-30', 'CRN', 'commercial stock concession', 'stock-credit-500')$$,
   'commercial credit can use remaining taxable capacity after a return credit'
 );
-
 select results_eq(
-  $$select app_private.active_credited_taxable_for_invoice_line(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'))
-    )$$,
-  array[900::numeric],
-  'shared credit ceiling aggregates return and commercial credits'
+  $$select app_private.active_credited_taxable_for_invoice_line('a1000000-0000-4000-8000-000000000010', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')))$$,
+  array[900::numeric], 'shared credit ceiling aggregates return and commercial credits'
 );
-
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '2', 'taxableAdjustment', '200'
-      )),
-      '2026-10-30', 'CRN', 'would exceed combined ceiling', 'stock-credit-over'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '2', 'taxableAdjustment', '200')), '2026-10-30', 'CRN', 'would exceed combined ceiling', 'stock-credit-over')$$,
   '23514', null, 'commercial credit cannot exceed remaining value after return-linked credits'
 );
-
 select lives_ok(
-  $$select public.cancel_financial_document(
-      'a1000000-0000-4000-8000-000000000010',
-      (select adjustment_document_id from public.financial_adjustments where request_key = 'stock-credit-500'),
-      'replace stock concession'
-    )$$,
+  $$select public.cancel_financial_document('a1000000-0000-4000-8000-000000000010', (select adjustment_document_id from public.financial_adjustments where request_key = 'stock-credit-500'), 'replace stock concession')$$,
   'cancelling commercial credit releases its taxable capacity'
 );
-
 select lives_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '6', 'taxableAdjustment', '600'
-      )),
-      '2026-10-30', 'CRN', 'replacement stock concession', 'stock-credit-600'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '6', 'taxableAdjustment', '600')), '2026-10-30', 'CRN', 'replacement stock concession', 'stock-credit-600')$$,
   'released capacity can be reused by a replacement commercial credit'
 );
-
 select throws_ok(
-  $$select public.issue_invoice_adjustment(
-      'a1000000-0000-4000-8000-000000000010',
-      (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'),
-      'credit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '1', 'taxableAdjustment', '1'
-      )),
-      '2026-10-30', 'CRN', 'no credit capacity left', 'stock-credit-full'
-    )$$,
+  $$select public.issue_invoice_adjustment('a1000000-0000-4000-8000-000000000010', (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'), 'credit_note', jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '1', 'taxableAdjustment', '1')), '2026-10-30', 'CRN', 'no credit capacity left', 'stock-credit-full')$$,
   '23514', null, 'combined active credits cannot exceed the original taxable value'
 );
 
@@ -475,10 +320,8 @@ select public.return_sales_fulfillment(
   jsonb_build_array(jsonb_build_object(
     'fulfillmentLineId', (select financial_document_line_id from public.sales_fulfillment_lines where organization_id = 'a1000000-0000-4000-8000-000000000010' and fulfillment_id = (select id from public.sales_fulfillments where request_key = 'adjust-stock-fulfill')),
     'quantity', '1'
-  )),
-  'one more unit returned', 'adjust-stock-return-1'
+  )), 'one more unit returned', 'adjust-stock-return-1'
 );
-
 select throws_ok(
   $$select public.issue_sales_return_credit_note(
       'a1000000-0000-4000-8000-000000000010',
@@ -498,10 +341,7 @@ select throws_ok(
       'a1000000-0000-4000-8000-000000000010',
       (select id from public.financial_documents where notes = 'commercial adjustment stock invoice'),
       'debit_note',
-      jsonb_build_array(jsonb_build_object(
-        'originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')),
-        'basisQuantity', '1', 'taxableAdjustment', '10'
-      )),
+      jsonb_build_array(jsonb_build_object('originalLineId', (select id from public.financial_document_lines where document_id = (select id from public.financial_documents where notes = 'commercial adjustment stock invoice')), 'basisQuantity', '1', 'taxableAdjustment', '10')),
       '2026-10-30', 'DBN', 'cross tenant attempt', 'cross-tenant-adjust'
     )$$,
   '42501', null, 'another tenant cannot issue adjustments in this organization'
@@ -509,11 +349,8 @@ select throws_ok(
 
 set local request.jwt.claim.sub = 'a1000000-0000-4000-8000-000000000001';
 select results_eq(
-  $$select count(*) from public.audit_events
-    where organization_id = 'a1000000-0000-4000-8000-000000000010'
-      and action = 'financial_document.adjustment_issued'$$,
-  array[4::bigint],
-  'every accepted commercial adjustment appends one high-level audit event'
+  $$select count(*) from public.audit_events where organization_id = 'a1000000-0000-4000-8000-000000000010' and action = 'financial_document.adjustment_issued'$$,
+  array[4::bigint], 'every accepted commercial adjustment appends one high-level audit event'
 );
 
 select * from finish();
