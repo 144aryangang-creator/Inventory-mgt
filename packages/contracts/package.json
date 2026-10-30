@@ -9,7 +9,9 @@
     "./organization-billing": "./src/organization-billing.ts",
     "./sales-fulfillment": "./src/sales-fulfillment.ts",
     "./customer-payments": "./src/customer-payments.ts",
-    "./inventory-workspace": "./src/inventory-workspace.ts"
+    "./inventory-workspace": "./src/inventory-workspace.ts",
+    "./operations": "./src/operations.ts",
+    "./purchase-receipts": "./src/purchase-receipts.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json --noEmit",
