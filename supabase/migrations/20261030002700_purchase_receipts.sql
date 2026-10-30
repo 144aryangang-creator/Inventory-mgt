@@ -2,6 +2,10 @@
 -- A Purchase Receipt records accepted goods entering one warehouse. It does not create a supplier
 -- payable or supplier invoice; financial/AP workflows remain separate future documents.
 
+-- Composite uniqueness lets receipt lines prove that their linked movement belongs to the same tenant.
+alter table public.inventory_movements
+  add constraint inventory_movements_id_organization_uq unique (id, organization_id);
+
 create table public.purchase_receipt_sequences (
   organization_id uuid primary key references public.organizations(id) on delete restrict,
   next_number bigint not null default 1 check (next_number between 1 and 999999999),
