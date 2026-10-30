@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppShell } from './layout/AppShell'
 import { DashboardPage } from './pages/DashboardPage'
+import { FinancialDocumentPrintPage } from './pages/FinancialDocumentPrintPage'
 import { InventoryPage } from './pages/InventoryPage'
 import { InvoicesPage } from './pages/InvoicesPage'
 import { LoginPage } from './pages/LoginPage'
@@ -14,6 +15,7 @@ export const router = createBrowserRouter([
   {
     element: <RequireAuth />,
     children: [
+      { path: '/financial-documents/:documentId/print', element: <FinancialDocumentPrintPage /> },
       {
         element: <AppShell />,
         children: [
