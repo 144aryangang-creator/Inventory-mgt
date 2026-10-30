@@ -6,13 +6,13 @@ const positiveDecimalSchema = z
   .regex(positiveDecimalPattern, 'Use a positive decimal string with at most 14 integer and 6 decimal digits')
   .refine((value) => !/^0+(?:\.0+)?$/.test(value), 'Quantity must be greater than zero')
 
-const uniqueLines = (lines: { fulfillmentLineId: string }[], ctx: z.RefinementCtx) => {
+function addDuplicateLineIssues(lines: { lineId: string }[], ctx: z.RefinementCtx) {
   const ids = new Set<string>()
   lines.forEach((line, index) => {
-    if (ids.has(line.fulfillmentLineId)) {
-      ctx.addIssue({ code: 'custom', path: ['lines', index, 'fulfillmentLineId'], message: 'Lines must be unique' })
+    if (ids.has(line.lineId)) {
+      ctx.addIssue({ code: 'custom', path: ['lines', index], message: 'Lines must be unique' })
     }
-    ids.add(line.fulfillmentLineId)
+    ids.add(line.lineId)
   })
 }
 
@@ -23,6 +23,30 @@ export const fulfillSalesInvoiceSchema = z.object({
   requestKey: z.string().trim().min(1, 'Request key is required').max(128),
 })
 export type FulfillSalesInvoiceInput = z.infer<typeof fulfillSalesInvoiceSchema>
+
+export const salesFulfillmentLineSchema = z.object({
+  financialDocumentLineId: z.uuid(),
+  quantity: positiveDecimalSchema,
+})
+export type SalesFulfillmentLineInput = z.infer<typeof salesFulfillmentLineSchema>
+
+export const postSalesFulfillmentSchema = z.object({
+  organizationId: z.uuid(),
+  documentId: z.uuid(),
+  warehouseId: z.uuid(),
+  lines: z.array(salesFulfillmentLineSchema).min(1, 'At least one fulfillment line is required').max(200),
+  requestKey: z.string().trim().min(1, 'Request key is required').max(128),
+}).superRefine((value, ctx) => addDuplicateLineIssues(
+  value.lines.map((line) => ({ lineId: line.financialDocumentLineId })),
+  ctx,
+))
+export type PostSalesFulfillmentInput = z.infer<typeof postSalesFulfillmentSchema>
+
+export const salesFulfillmentHistoryQuerySchema = z.object({
+  organizationId: z.uuid(),
+  documentId: z.uuid(),
+})
+export type SalesFulfillmentHistoryQuery = z.infer<typeof salesFulfillmentHistoryQuerySchema>
 
 export const salesReturnLineSchema = z.object({
   fulfillmentLineId: z.uuid(),
@@ -35,7 +59,10 @@ export const returnSalesFulfillmentSchema = z.object({
   lines: z.array(salesReturnLineSchema).min(1, 'At least one return line is required').max(200),
   reason: z.string().trim().min(1, 'Return reason is required').max(240),
   requestKey: z.string().trim().min(1, 'Request key is required').max(128),
-}).superRefine((value, ctx) => uniqueLines(value.lines, ctx))
+}).superRefine((value, ctx) => addDuplicateLineIssues(
+  value.lines.map((line) => ({ lineId: line.fulfillmentLineId })),
+  ctx,
+))
 export type ReturnSalesFulfillmentInput = z.infer<typeof returnSalesFulfillmentSchema>
 
 export const salesReturnHistoryQuerySchema = z.object({
@@ -56,7 +83,10 @@ export const issueSalesReturnCreditNoteSchema = z.object({
     .regex(/^[A-Za-z0-9][A-Za-z0-9-]{0,7}$/, 'Series can contain letters, numbers and hyphens')
     .transform((value) => value.toUpperCase()),
   requestKey: z.string().trim().min(1, 'Request key is required').max(128),
-}).superRefine((value, ctx) => uniqueLines(value.lines, ctx))
+}).superRefine((value, ctx) => addDuplicateLineIssues(
+  value.lines.map((line) => ({ lineId: line.fulfillmentLineId })),
+  ctx,
+))
 export type IssueSalesReturnCreditNoteInput = z.infer<typeof issueSalesReturnCreditNoteSchema>
 
 export const salesReturnCreditHistoryQuerySchema = z.object({
