@@ -1,0 +1,203 @@
+.purchase-receipt-heading {
+  align-items: flex-start;
+}
+
+.purchase-receipt-form-panel {
+  margin-bottom: 20px;
+}
+
+.purchase-receipt-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.purchase-receipt-form label,
+.purchase-receipt-line label {
+  display: grid;
+  gap: 6px;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.purchase-receipt-form input,
+.purchase-receipt-form select,
+.purchase-receipt-form textarea,
+.purchase-receipt-line input,
+.purchase-receipt-line select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+}
+
+.purchase-receipt-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
+.purchase-receipt-full {
+  grid-column: 1 / -1;
+}
+
+.purchase-receipt-lines {
+  display: grid;
+  gap: 10px;
+}
+
+.purchase-receipt-line-heading,
+.purchase-receipt-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.purchase-receipt-line {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(130px, 0.6fr) minmax(140px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-subtle);
+}
+
+.purchase-receipt-line > small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+}
+
+.purchase-receipt-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.purchase-receipt-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.7fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.purchase-receipt-list-panel {
+  position: sticky;
+  top: 18px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.purchase-receipt-list {
+  display: grid;
+  gap: 8px;
+}
+
+.purchase-receipt-list-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface-subtle);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.purchase-receipt-list-row:hover,
+.purchase-receipt-list-row.selected {
+  border-color: #b8c4db;
+  background: #f3f6fc;
+}
+
+.purchase-receipt-list-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.purchase-receipt-list-row span:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+.purchase-receipt-list-row small,
+.purchase-receipt-detail-lines small {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.purchase-receipt-detail-header {
+  margin-bottom: 16px;
+}
+
+.purchase-receipt-detail-header h2 {
+  margin: 3px 0 5px;
+}
+
+.purchase-receipt-detail-lines {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0;
+}
+
+.purchase-receipt-detail-lines article {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+.purchase-receipt-detail-lines article > span {
+  display: grid;
+  gap: 4px;
+}
+
+.purchase-receipt-detail-lines article > span:last-child {
+  justify-items: end;
+  text-align: right;
+}
+
+@media (max-width: 1050px) {
+  .purchase-receipt-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-receipt-list-panel {
+    position: static;
+    max-height: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .purchase-receipt-form,
+  .purchase-receipt-line {
+    grid-template-columns: 1fr;
+  }
+
+  .purchase-receipt-full,
+  .purchase-receipt-line > small {
+    grid-column: 1;
+  }
+
+  .purchase-receipt-list-row,
+  .purchase-receipt-detail-header,
+  .purchase-receipt-detail-lines article {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .purchase-receipt-list-row span:last-child,
+  .purchase-receipt-detail-lines article > span:last-child {
+    justify-items: start;
+    text-align: left;
+  }
+}
