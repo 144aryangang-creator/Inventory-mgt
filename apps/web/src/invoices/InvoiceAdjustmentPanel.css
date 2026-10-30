@@ -1,0 +1,55 @@
+.invoice-adjustment-panel {
+  margin: 16px 0;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.invoice-adjustment-panel .invoice-return-record {
+  margin-top: 10px;
+}
+
+.invoice-adjustment-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(140px, 0.7fr) minmax(160px, 0.8fr);
+  gap: 10px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.invoice-adjustment-line > span {
+  display: grid;
+  gap: 3px;
+}
+
+.invoice-adjustment-line small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.invoice-adjustment-line label {
+  display: grid;
+  gap: 5px;
+  color: #344054;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.invoice-adjustment-line input {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  background: #fff;
+}
+
+@media (max-width: 760px) {
+  .invoice-adjustment-line {
+    grid-template-columns: 1fr;
+  }
+}
