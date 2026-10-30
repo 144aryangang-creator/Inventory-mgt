@@ -2,18 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { salesFulfillmentRoutes } from './sales-fulfillment'
 
 const organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-const fulfillmentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
-const fulfillmentLineId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const documentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const fulfillmentId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const fulfillmentLineId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const salesReturnId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+const warehouseId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
 
 describe('sales fulfillment API boundary', () => {
-  it('rejects malformed fulfillment identifiers before database access', async () => {
+  it('rejects malformed legacy fulfillment identifiers before database access', async () => {
     const response = await salesFulfillmentRoutes.request('/not-a-uuid/fulfill', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         organizationId,
-        warehouseId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        warehouseId,
         requestKey: 'fulfill-1',
       }),
     })
@@ -22,8 +24,44 @@ describe('sales fulfillment API boundary', () => {
     await expect(response.json()).resolves.toMatchObject({ error: 'validation_failed' })
   })
 
-  it('rejects malformed fulfillment status reads', async () => {
+  it('rejects malformed singular fulfillment status reads', async () => {
     const response = await salesFulfillmentRoutes.request('/not-a-uuid/fulfillment?organizationId=bad')
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects malformed plural fulfillment history reads', async () => {
+    const response = await salesFulfillmentRoutes.request('/not-a-uuid/fulfillments?organizationId=bad')
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects numeric partial fulfillment quantities before database access', async () => {
+    const response = await salesFulfillmentRoutes.request(`/${documentId}/fulfillments`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        organizationId,
+        warehouseId,
+        lines: [{ financialDocumentLineId: fulfillmentLineId, quantity: 1 }],
+        requestKey: 'partial-1',
+      }),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects duplicate invoice lines in one partial fulfillment request', async () => {
+    const response = await salesFulfillmentRoutes.request(`/${documentId}/fulfillments`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        organizationId,
+        warehouseId,
+        lines: [
+          { financialDocumentLineId: fulfillmentLineId, quantity: '1' },
+          { financialDocumentLineId: fulfillmentLineId, quantity: '1' },
+        ],
+        requestKey: 'partial-2',
+      }),
+    })
     expect(response.status).toBe(400)
   })
 
