@@ -310,6 +310,7 @@
 }
 
 .invoice-fulfillment.fulfilled {
+  align-items: stretch;
   border-color: #b7e4c7;
   background: #f0fdf4;
 }
@@ -338,9 +339,86 @@
   background: #fff;
 }
 
+.invoice-fulfillment-return-stack {
+  width: 100%;
+  gap: 14px !important;
+}
+
+.invoice-fulfillment-return-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.invoice-fulfillment-return-header > div {
+  display: grid;
+  gap: 4px;
+}
+
+.invoice-return-history {
+  display: grid;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #cfe8d7;
+}
+
+.invoice-return-record {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border: 1px solid #d8eadf;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.invoice-return-record > span {
+  display: grid;
+  gap: 3px;
+}
+
+.invoice-return-record > span:last-child {
+  text-align: right;
+}
+
+.invoice-return-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #cfe8d7;
+  border-radius: 9px;
+  background: #fff;
+}
+
+.invoice-return-form label {
+  display: grid;
+  gap: 5px;
+  color: #344054;
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+
+.invoice-return-form input,
+.invoice-return-form textarea {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+}
+
+.invoice-return-form textarea {
+  min-height: 72px;
+  resize: vertical;
+}
+
 @media (max-width: 760px) {
   .invoice-fulfillment,
-  .invoice-fulfillment-actions {
+  .invoice-fulfillment-actions,
+  .invoice-fulfillment-return-header,
+  .invoice-return-record {
     align-items: stretch;
     flex-direction: column;
   }
@@ -348,5 +426,9 @@
   .invoice-fulfillment-actions select {
     min-width: 0;
     width: 100%;
+  }
+
+  .invoice-return-record > span:last-child {
+    text-align: left;
   }
 }
