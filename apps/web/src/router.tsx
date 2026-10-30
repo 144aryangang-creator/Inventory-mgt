@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router'
 import { RequireAuth } from './auth/RequireAuth'
 import { AppShell } from './layout/AppShell'
 import { AuditLogPage } from './pages/AuditLogPage'
+import { BulkDataPage } from './pages/BulkDataPage'
 import { FinancialDocumentPrintPage } from './pages/FinancialDocumentPrintPage'
 import { InventoryPage } from './pages/InventoryPage'
 import { InvoicesPage } from './pages/InvoicesPage'
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
           { path: '/purchases', element: <PurchaseReceiptsPage /> },
           { path: '/invoices', element: <InvoicesPage /> },
           { path: '/payments', element: <PaymentsPage /> },
+          { path: '/data', element: <BulkDataPage /> },
           { path: '/audit', element: <AuditLogPage /> },
           { path: '/settings', element: <SettingsPage /> },
         ],
