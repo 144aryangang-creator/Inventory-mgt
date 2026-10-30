@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router'
 import { ApiError, apiFetch } from '../lib/api'
 import { useOrganization } from '../organizations/OrganizationProvider'
+import { OrganizationOnboarding } from './DashboardPage'
 import '../operations.css'
 
 type CurrencySummary = {
@@ -87,7 +88,7 @@ export function OperationalDashboardPage() {
   useEffect(() => { void loadDashboard() }, [loadDashboard])
 
   if (organizationLoading) return <div className="centered-panel-state">Loading organization…</div>
-  if (!activeOrganization) return <section className="panel"><h1>Dashboard</h1><p className="muted">Create an organization first.</p></section>
+  if (!activeOrganization) return <OrganizationOnboarding />
 
   return (
     <section>
@@ -110,6 +111,7 @@ export function OperationalDashboardPage() {
             <Link to="/purchases">Purchase receipts</Link>
             <Link to="/inventory">Inventory</Link>
             <Link to="/payments">Payments</Link>
+            <Link to="/data">Import / Export</Link>
             <Link to="/audit">Audit log</Link>
           </div>
 
