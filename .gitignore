@@ -18,6 +18,11 @@ node_modules/
 dist/
 coverage/
 
+# Playwright local artifacts
+playwright-report/
+test-results/
+blob-report/
+
 # Editors / OS
 .vscode/
 .idea/
