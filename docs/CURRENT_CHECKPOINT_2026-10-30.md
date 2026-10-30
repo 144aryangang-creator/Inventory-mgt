@@ -2,109 +2,171 @@
 
 ## Stable checkpoint
 
-**Purchase receiving + operational dashboard/audit integration are complete and CI-green.**
+**Secure CSV bulk import/export V1 is complete and CI-green. Real-stack Playwright coverage is in progress.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
 Main branch: foundation work is not merged yet.
 
-### Validation gates
+### Current validation gates
 
-- Database CI: **GREEN** — run `40985726873`
-  - Postgres-only Supabase startup passed
-  - migration rebuild through `20261030002900_operational_dashboard.sql` passed
+- Database CI: **GREEN** — run `40987922831`
+  - migration rebuild through `20261030003300_bulk_import_payload_null_hardening.sql` passed
   - DB lint passed
-  - pgTAP suites `001–020` passed
+  - pgTAP suites `001–023` passed
   - clean shutdown passed
-- Application CI: **GREEN** — run `40985559971`
+- Application CI: **GREEN** — run `40987757450`
   - locked install passed
   - lockfile drift check passed
   - strict TypeScript passed
   - contract/API/web unit tests passed
   - Cloudflare Worker build passed
   - React/Vite production build passed
+- Browser E2E: **IN PROGRESS**
+  - Playwright `1.64.1`
+  - real local Supabase Auth/PostgREST/Postgres + Worker + React + Chromium
+  - current retry-safe critical-path run: `40988630175`
+  - first browser run proved infrastructure healthy and exposed a selector/retry-state test defect; the test has been corrected
 
-## Latest completed business workflow — Purchase Receipts
+## Latest completed milestone — Secure CSV bulk data V1
 
 Implemented:
 
-- `20261030002700_purchase_receipts.sql`
-- `20261030002800_purchase_receipt_error_hardening.sql`
-- immutable `purchase_receipts` + `purchase_receipt_lines`
-- tenant-scoped receipt → exact inventory movement linkage
-- per-organization transactional receipt/GRN numbering
-- active supplier-role, item and warehouse validation
-- exact decimal quantity + unit cost
-- zero-cost physical receipts allowed
-- immutable supplier/item snapshots
-- atomic multi-line `receipt` inventory movements
+- `/data` Import / Export workspace
+- CSV schema version `1`
+- Items import + export
+- Customers import + export
+- Suppliers import + export
+- Opening Stock template + import only
+- mandatory dry-run before UI enables import
+- API CSV grammar + row-schema validation
+- PostgreSQL authoritative existing-data dry-run validation
+- atomic import transaction per batch
+- create-only V1 semantics
+- immutable `data_import_batches`
 - request-key idempotency
-- rollback of header, stock movements and sequence if any line fails
-- audit event
-- contracts + API + `/purchases` web workspace
-- `019_purchase_receipts.test.sql` — 40 assertions
+- high-level `data_import.completed` audit event
+- spreadsheet/formula-injection defense on exports
+- exact decimal-string Opening Stock quantity/cost semantics
+- Opening Stock position must have no prior inventory history
+- explicit row/file limits: 1,000 data rows / 2 MiB
+- strict versioned header order
+- quoted commas/quotes/newlines supported
+- NUL and malformed quote grammar rejected
+- no automatic date/number coercion
 
-Important boundary: **Purchase Receipt is physical logistics only. It does not create Accounts Payable or a supplier invoice.** Future supplier accounting must link to receipt history rather than rewrite it.
+Database migrations:
 
-## Latest completed operational visibility milestone
+- `20261030003000_bulk_imports.sql`
+- `20261030003100_bulk_import_validation.sql`
+- `20261030003200_bulk_import_payload_hardening.sql`
+- `20261030003300_bulk_import_payload_null_hardening.sql`
+
+Regression coverage:
+
+- `021_bulk_imports.test.sql` — 32 assertions
+- `022_bulk_import_validation.test.sql` — 12 assertions
+- `023_bulk_import_payload_hardening.test.sql` — 6 assertions
+- shared CSV parser/export unit tests
+- API boundary tests
+
+See `docs/BULK_DATA.md` for the canonical CSV contract.
+
+### Important CSV boundaries
+
+- CSV is transport; PostgreSQL remains authoritative.
+- Imports do not accept tenant IDs, database IDs, audit actor identity, tax calculations or immutable snapshots.
+- Items/Customers/Suppliers are create-only in V1.
+- Opening Stock is initialization, not a current-balance report.
+- Current balances are deliberately **not** exported as “opening stock.”
+- Spreadsheet-safe exports are not guaranteed round-trip import files because defensive formula neutralization may alter dangerous leading characters.
+- Future `.xlsx` support must normalize into the exact same server-side v1 row model and dry-run/import RPCs.
+
+## Browser E2E — current state
 
 Implemented:
 
-- `20261030002900_operational_dashboard.sql`
-- `020_operational_dashboard.test.sql` — 18 assertions
-- operations contracts/API
-- `/v1/operations/dashboard`
-- `/v1/operations/audit`
-- `/` uses `OperationalDashboardPage`
-- `/audit` uses `AuditLogPage`
-- Purchase Receipts + Audit Log sidebar navigation
-- read-only tenant-scoped audit viewer
-- operational dashboard styling/documentation
+- pinned `@playwright/test` `1.64.1`
+- CI uses one Chromium worker + retries
+- traces/screenshots/videos retained on failure
+- real local Supabase application stack
+- real password authentication
+- real Worker JWT verification
+- real PostgreSQL RLS path
+- real React application
+- ephemeral local E2E user
+- current critical path:
+  1. sign in
+  2. create first organization when required
+  3. verify selected tenant/dashboard
+  4. upload Item CSV
+  5. dry-run validation
+  6. atomic import
+  7. verify imported item in Inventory
 
-Operational invariants:
+Important regression already found by E2E design review:
 
-- financial KPIs are grouped by currency; never sum unlike currencies
-- inventory KPI totals are counts/statuses; never sum unrelated item/UOM quantities
-- purchase receipt metrics describe physical receiving, not AP/payables
-- fulfillment status is derived from immutable fulfillment postings
-- audit events remain immutable; viewer access remains governed by database RLS
+- first-organization onboarding became unreachable when `/` was switched to the operational dashboard
+- fixed by reusing `OrganizationOnboarding` from `OperationalDashboardPage`
 
-## Important fixes in this milestone
+First browser execution also proved the organization was actually created, but the test used an invisible selected `<option>` as a visibility assertion and retries reused DB state. The test is now retry-safe and asserts the selected organization semantically.
 
-- mounted previously unmounted purchase-receipt and operations API routes
-- exported `@inventory/contracts/operations` and `@inventory/contracts/purchase-receipts`
-- fixed purchase-receipt regression tests without widening sequence-table permissions
-- hardened DB CI to start only required Supabase/Postgres services, reducing external image pulls
+## Previously stable workflows
+
+- tenant/RLS/auth foundation
+- inventory ledger + master workflows + transfers
+- parties / addresses / GST registrations
+- seller billing profiles
+- GST invoice core
+- general credit/debit corrections
+- return-linked credits
+- customer payments + reversals/refunds
+- partial + multi-warehouse fulfillment
+- immutable sales returns
+- Purchase Receipts / physical supplier receiving
+- operational dashboard + read-only audit viewer
+- Print / Save PDF for immutable financial documents
+
+Purchase Receipt remains physical logistics only. It does not create supplier AP/payables.
 
 ## Architecture invariants to preserve
 
 - PostgreSQL RLS is the tenant security boundary
-- user-selected active organization is UX state only
+- selected organization is UX state only
 - inventory movements are append-only
 - issued financial documents are immutable
-- corrections use return/reversal/credit/debit ledgers
-- exact `numeric` values in PostgreSQL; decimal strings across JS boundaries
-- historical legal/item/tax snapshots never depend on later master-data edits
+- corrections use explicit return/reversal/credit/debit ledgers
+- exact PostgreSQL `numeric`; decimal strings across JS boundaries
+- historical legal/item/tax snapshots never depend on later master edits
 - dangerous mutations use idempotency keys
 - critical mutations append audit events
 - no service-role key in normal business API requests
 - no production credentials or real customer data in Git
+- bulk dry-run is advisory only; execution always re-validates authoritative state
 
 ## Next task — resume here
 
-**Build secure bulk import/export, then browser E2E coverage.**
+1. Finish Browser E2E run `40988630175` and fix any real browser/app defect.
+2. Once green, extend E2E to Purchase Receipt:
+   - create warehouse
+   - import supplier
+   - post receipt
+   - verify immutable GRN history
+   - verify stock balance
+3. Then add browser coverage for:
+   - tax invoice issue
+   - partial/multi-warehouse fulfillment
+   - return + return-linked credit
+   - customer payment + reversal/refund
+   - print route
+   - audit/dashboard
+4. After critical E2E flows are green, move to production hardening:
+   - secret management
+   - backups + restore drill
+   - monitoring/error tracking
+   - privileged-account MFA
+   - dependency/security scanning
+   - load/concurrency tests
+   - deployment
 
-Recommended order:
-
-1. define versioned import/export schemas for item, customer, supplier and opening-stock data
-2. start with CSV; add `.xlsx` only through a vetted parser after the CSV contract is stable
-3. implement dry-run validation before any mutation
-4. return row-level validation errors; never partially import a failed atomic batch unless the workflow explicitly supports partial acceptance
-5. protect spreadsheet exports against CSV/formula injection
-6. keep all tenant IDs/server-generated snapshots/tax calculations authoritative on the server; never accept them from import files
-7. add idempotency + import audit events
-8. add export endpoints with stable column order and explicit currency/UOM semantics
-9. add Playwright E2E for auth/tenant switching, purchase receipt, invoice issue, partial fulfillment, return/credit, payment/reversal, print and audit/dashboard paths
-10. after E2E is green, move to production hardening: secrets, backups/restore drill, monitoring, MFA, dependency/security scan and deployment
-
-Security note for exports: OWASP CSV/formula injection must be treated as a release blocker for spreadsheet-compatible exports.
+Do not merge `foundation/bootstrap` to `main` without explicit authorization.
