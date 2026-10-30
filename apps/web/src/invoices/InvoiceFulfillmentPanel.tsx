@@ -4,6 +4,7 @@ import {
 } from '@inventory/contracts/sales-fulfillment'
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { ApiError, apiFetch } from '../lib/api'
+import { InvoiceAdjustmentPanel } from './InvoiceAdjustmentPanel'
 
 type Warehouse = { id: string; code: string; name: string; is_active: boolean }
 type Fulfillment = { id: string; financial_document_id: string; warehouse_id: string; request_key: string; posted_at: string; created_by: string }
@@ -199,97 +200,103 @@ export function InvoiceFulfillmentPanel({ organizationId, documentId, documentSt
 
   if (fulfillment) {
     return (
-      <div className="invoice-fulfillment fulfilled">
-        <div className="invoice-fulfillment-return-stack">
-          <div className="invoice-fulfillment-return-header">
-            <div><span className="eyebrow">Stock fulfilment</span><strong>Fulfilled</strong><small>{fulfillmentWarehouse ? `${fulfillmentWarehouse.code} · ${fulfillmentWarehouse.name}` : 'Warehouse'} · {new Date(fulfillment.posted_at).toLocaleString()}</small></div>
-            <div className="invoice-fulfillment-actions">
-              <span className="status-pill neutral">stock posted</span>
-              {documentStatus !== 'draft' ? <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button> : null}
-            </div>
-          </div>
-
-          <div className="invoice-return-history">
+      <>
+        <div className="invoice-fulfillment fulfilled">
+          <div className="invoice-fulfillment-return-stack">
             <div className="invoice-fulfillment-return-header">
-              <div><strong>Sales returns</strong><small>{returns.length === 0 ? 'No stock has been returned.' : `${returns.length} immutable return record${returns.length === 1 ? '' : 's'}.`}</small></div>
-              {documentStatus === 'issued' && fulfillmentLines.length > 0 ? <button className="secondary-button" type="button" onClick={() => setShowReturnForm((current) => !current)} disabled={posting}>{showReturnForm ? 'Close return' : 'Record return'}</button> : null}
+              <div><span className="eyebrow">Stock fulfilment</span><strong>Fulfilled</strong><small>{fulfillmentWarehouse ? `${fulfillmentWarehouse.code} · ${fulfillmentWarehouse.name}` : 'Warehouse'} · {new Date(fulfillment.posted_at).toLocaleString()}</small></div>
+              <div className="invoice-fulfillment-actions">
+                <span className="status-pill neutral">stock posted</span>
+                {documentStatus !== 'draft' ? <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button> : null}
+              </div>
             </div>
 
-            {returns.map((salesReturn) => {
-              const sourceLines = returnLines.filter((line) => line.return_id === salesReturn.id)
-              const links = creditLinks.filter((link) => link.sales_return_id === salesReturn.id)
-              return (
-                <div className="invoice-return-record" key={salesReturn.id}>
-                  <span>
-                    <strong>{salesReturn.reason}</strong>
-                    <small>{new Date(salesReturn.posted_at).toLocaleString()}</small>
-                    {sourceLines.map((line) => <small key={`${salesReturn.id}-${line.fulfillment_line_id}`}>Returned {String(line.quantity)} · line {line.fulfillment_line_id.slice(0, 8)}</small>)}
-                  </span>
-                  <span>
-                    {links.length === 0 ? <small>No financial credit issued.</small> : links.map((link) => {
-                      const doc = creditDocuments.find((entry) => entry.id === link.credit_note_id)
-                      const allocations = creditAllocations.filter((entry) => entry.credit_note_id === link.credit_note_id)
-                      return <small key={link.id}>{doc?.document_number ?? 'Credit note'} · {doc?.status ?? 'unknown'} · {doc?.currency_code ?? ''} {doc ? String(doc.grand_total) : ''} · qty {allocations.map((entry) => String(entry.quantity)).join(', ')}</small>
-                    })}
-                    <button className="text-button" type="button" onClick={() => openCreditForm(salesReturn.id)} disabled={posting}>{creditReturnId === salesReturn.id ? 'Close credit' : 'Issue credit note'}</button>
-                  </span>
+            <div className="invoice-return-history">
+              <div className="invoice-fulfillment-return-header">
+                <div><strong>Sales returns</strong><small>{returns.length === 0 ? 'No stock has been returned.' : `${returns.length} immutable return record${returns.length === 1 ? '' : 's'}.`}</small></div>
+                {documentStatus === 'issued' && fulfillmentLines.length > 0 ? <button className="secondary-button" type="button" onClick={() => setShowReturnForm((current) => !current)} disabled={posting}>{showReturnForm ? 'Close return' : 'Record return'}</button> : null}
+              </div>
 
-                  {creditReturnId === salesReturn.id ? (
-                    <form className="invoice-return-form" onSubmit={issueReturnCredit}>
-                      <p className="muted">Enter only the returned quantities to credit now. Existing active credits remain reserved; PostgreSQL rejects over-crediting.</p>
-                      {sourceLines.map((line) => (
-                        <label key={`credit-${line.fulfillment_line_id}`}>
-                          Returned line {line.fulfillment_line_id.slice(0, 8)} · returned {String(line.quantity)}
-                          <input inputMode="decimal" placeholder="Quantity to credit" value={creditQuantities[line.fulfillment_line_id] ?? ''} onChange={(event) => setCreditQuantities((current) => ({ ...current, [line.fulfillment_line_id]: event.target.value }))} />
-                        </label>
-                      ))}
-                      <label>Credit note date<input type="date" required value={creditDate} onChange={(event) => setCreditDate(event.target.value)} /></label>
-                      <label>Series<input required maxLength={8} value={creditSeries} onChange={(event) => setCreditSeries(event.target.value)} /></label>
-                      <p className="muted">Seller, buyer, item, price, discount and GST rates are copied from the original issued invoice. This credit note is issued immediately.</p>
-                      <button className="primary-button" type="submit" disabled={posting}>{posting ? 'Issuing credit…' : 'Issue return credit note'}</button>
-                    </form>
-                  ) : null}
-                </div>
-              )
-            })}
+              {returns.map((salesReturn) => {
+                const sourceLines = returnLines.filter((line) => line.return_id === salesReturn.id)
+                const links = creditLinks.filter((link) => link.sales_return_id === salesReturn.id)
+                return (
+                  <div className="invoice-return-record" key={salesReturn.id}>
+                    <span>
+                      <strong>{salesReturn.reason}</strong>
+                      <small>{new Date(salesReturn.posted_at).toLocaleString()}</small>
+                      {sourceLines.map((line) => <small key={`${salesReturn.id}-${line.fulfillment_line_id}`}>Returned {String(line.quantity)} · line {line.fulfillment_line_id.slice(0, 8)}</small>)}
+                    </span>
+                    <span>
+                      {links.length === 0 ? <small>No financial credit issued.</small> : links.map((link) => {
+                        const doc = creditDocuments.find((entry) => entry.id === link.credit_note_id)
+                        const allocations = creditAllocations.filter((entry) => entry.credit_note_id === link.credit_note_id)
+                        return <small key={link.id}>{doc?.document_number ?? 'Credit note'} · {doc?.status ?? 'unknown'} · {doc?.currency_code ?? ''} {doc ? String(doc.grand_total) : ''} · qty {allocations.map((entry) => String(entry.quantity)).join(', ')}</small>
+                      })}
+                      <button className="text-button" type="button" onClick={() => openCreditForm(salesReturn.id)} disabled={posting}>{creditReturnId === salesReturn.id ? 'Close credit' : 'Issue credit note'}</button>
+                    </span>
+
+                    {creditReturnId === salesReturn.id ? (
+                      <form className="invoice-return-form" onSubmit={issueReturnCredit}>
+                        <p className="muted">Enter only the returned quantities to credit now. Existing active credits remain reserved; PostgreSQL rejects over-crediting.</p>
+                        {sourceLines.map((line) => (
+                          <label key={`credit-${line.fulfillment_line_id}`}>
+                            Returned line {line.fulfillment_line_id.slice(0, 8)} · returned {String(line.quantity)}
+                            <input inputMode="decimal" placeholder="Quantity to credit" value={creditQuantities[line.fulfillment_line_id] ?? ''} onChange={(event) => setCreditQuantities((current) => ({ ...current, [line.fulfillment_line_id]: event.target.value }))} />
+                          </label>
+                        ))}
+                        <label>Credit note date<input type="date" required value={creditDate} onChange={(event) => setCreditDate(event.target.value)} /></label>
+                        <label>Series<input required maxLength={8} value={creditSeries} onChange={(event) => setCreditSeries(event.target.value)} /></label>
+                        <p className="muted">Seller, buyer, item, price, discount and GST rates are copied from the original issued invoice. This credit note is issued immediately.</p>
+                        <button className="primary-button" type="submit" disabled={posting}>{posting ? 'Issuing credit…' : 'Issue return credit note'}</button>
+                      </form>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+
+            {showReturnForm ? (
+              <form className="invoice-return-form" onSubmit={postReturn}>
+                <p className="muted">Enter only the quantities being returned now. The database rejects any amount above the still-returnable fulfilled quantity.</p>
+                {fulfillmentLines.map((line) => <label key={line.financial_document_line_id}>Invoice line {line.financial_document_line_id.slice(0, 8)} · fulfilled {String(line.quantity)}<input inputMode="decimal" placeholder="Return quantity" value={returnQuantities[line.financial_document_line_id] ?? ''} onChange={(event) => setReturnQuantities((current) => ({ ...current, [line.financial_document_line_id]: event.target.value }))} /></label>)}
+                <label>Return reason<textarea required maxLength={240} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label>
+                <button className="primary-button" type="submit" disabled={posting}>{posting ? 'Posting return…' : 'Post sales return'}</button>
+              </form>
+            ) : null}
           </div>
-
-          {showReturnForm ? (
-            <form className="invoice-return-form" onSubmit={postReturn}>
-              <p className="muted">Enter only the quantities being returned now. The database rejects any amount above the still-returnable fulfilled quantity.</p>
-              {fulfillmentLines.map((line) => <label key={line.financial_document_line_id}>Invoice line {line.financial_document_line_id.slice(0, 8)} · fulfilled {String(line.quantity)}<input inputMode="decimal" placeholder="Return quantity" value={returnQuantities[line.financial_document_line_id] ?? ''} onChange={(event) => setReturnQuantities((current) => ({ ...current, [line.financial_document_line_id]: event.target.value }))} /></label>)}
-              <label>Return reason<textarea required maxLength={240} value={returnReason} onChange={(event) => setReturnReason(event.target.value)} /></label>
-              <button className="primary-button" type="submit" disabled={posting}>{posting ? 'Posting return…' : 'Post sales return'}</button>
-            </form>
-          ) : null}
+          {error ? <p className="error-message" role="alert">{error}</p> : null}
         </div>
-        {error ? <p className="error-message" role="alert">{error}</p> : null}
-      </div>
+        <InvoiceAdjustmentPanel organizationId={organizationId} documentId={documentId} documentStatus={documentStatus} onChanged={onChanged} />
+      </>
     )
   }
 
   if (documentStatus === 'draft') return null
 
   return (
-    <div className="invoice-fulfillment">
-      <div>
-        <span className="eyebrow">Document output</span>
-        <strong>{documentStatus === 'cancelled' ? 'Cancelled document' : hasStockLines ? 'Ready to fulfil' : 'Issued non-stock document'}</strong>
-        <small>{documentStatus === 'cancelled' ? 'The cancelled status and reason are preserved on the print view.' : hasStockLines ? 'All stock-backed lines post in one database transaction.' : 'This document has no stock-backed lines.'}</small>
+    <>
+      <div className="invoice-fulfillment">
+        <div>
+          <span className="eyebrow">Document output</span>
+          <strong>{documentStatus === 'cancelled' ? 'Cancelled document' : hasStockLines ? 'Ready to fulfil' : 'Issued non-stock document'}</strong>
+          <small>{documentStatus === 'cancelled' ? 'The cancelled status and reason are preserved on the print view.' : hasStockLines ? 'All stock-backed lines post in one database transaction.' : 'This document has no stock-backed lines.'}</small>
+        </div>
+        <div className="invoice-fulfillment-actions">
+          {documentStatus === 'issued' && hasStockLines ? (
+            <>
+              <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} disabled={posting || warehouses.length === 0}>
+                {warehouses.length === 0 ? <option value="">No active warehouse</option> : null}
+                {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} · {warehouse.name}</option>)}
+              </select>
+              <button className="primary-button" type="button" disabled={posting || !warehouseId} onClick={() => void fulfill()}>{posting ? 'Fulfilling…' : 'Fulfil stock'}</button>
+            </>
+          ) : null}
+          <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button>
+        </div>
+        {error ? <p className="error-message" role="alert">{error}</p> : null}
       </div>
-      <div className="invoice-fulfillment-actions">
-        {documentStatus === 'issued' && hasStockLines ? (
-          <>
-            <select value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)} disabled={posting || warehouses.length === 0}>
-              {warehouses.length === 0 ? <option value="">No active warehouse</option> : null}
-              {warehouses.map((warehouse) => <option key={warehouse.id} value={warehouse.id}>{warehouse.code} · {warehouse.name}</option>)}
-            </select>
-            <button className="primary-button" type="button" disabled={posting || !warehouseId} onClick={() => void fulfill()}>{posting ? 'Fulfilling…' : 'Fulfil stock'}</button>
-          </>
-        ) : null}
-        <button className="secondary-button" type="button" onClick={openPrint}>Print / Save PDF</button>
-      </div>
-      {error ? <p className="error-message" role="alert">{error}</p> : null}
-    </div>
+      <InvoiceAdjustmentPanel organizationId={organizationId} documentId={documentId} documentStatus={documentStatus} onChanged={onChanged} />
+    </>
   )
 }
