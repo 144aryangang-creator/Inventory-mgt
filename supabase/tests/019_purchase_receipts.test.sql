@@ -148,7 +148,7 @@ select throws_ok(
       '[{"itemId":"e1000000-0000-4000-8000-000000000030","quantity":"4","unitCost":"100.50"}]'::jsonb,
       'receipt-one', 'DN-1001', 'first physical receipt', '2026-10-29T10:00:00+00'
     )$$,
-  '22023', null, 'same request key cannot be reused with different receipt payload'
+  '23505', null, 'same request key cannot be reused with different receipt payload'
 );
 
 select lives_ok(
@@ -164,7 +164,10 @@ select results_eq(
   $$select unit_cost from public.inventory_movements where reference_type = 'purchase_receipt' and reference_id = (select id from public.purchase_receipts where request_key = 'receipt-two')$$,
   array[0::numeric], 'zero unit cost is preserved exactly'
 );
+reset role;
 select results_eq($$select next_number from public.purchase_receipt_sequences where organization_id = 'e1000000-0000-4000-8000-000000000010'$$, array[3::bigint], 'receipt sequence advances transactionally');
+set local role authenticated;
+set local request.jwt.claim.sub = 'e1000000-0000-4000-8000-000000000001';
 
 select throws_ok(
   $$select public.post_purchase_receipt(
@@ -182,7 +185,10 @@ select results_eq(
   $$select quantity_on_hand from public.inventory_balances where organization_id = 'e1000000-0000-4000-8000-000000000010' and item_id = 'e1000000-0000-4000-8000-000000000030' and warehouse_id = 'e1000000-0000-4000-8000-000000000040'$$,
   array[4::numeric], 'failed mixed receipt rolls back earlier line stock movement'
 );
+reset role;
 select results_eq($$select next_number from public.purchase_receipt_sequences where organization_id = 'e1000000-0000-4000-8000-000000000010'$$, array[3::bigint], 'failed receipt does not consume receipt number');
+set local role authenticated;
+set local request.jwt.claim.sub = 'e1000000-0000-4000-8000-000000000001';
 
 select throws_ok(
   $$select public.post_purchase_receipt('e1000000-0000-4000-8000-000000000010','e1000000-0000-4000-8000-000000000020','e1000000-0000-4000-8000-000000000040','[{"itemId":"e1000000-0000-4000-8000-000000000032","quantity":"1","unitCost":"10"}]'::jsonb,'receipt-service')$$,
