@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = public, extensions;
 
-select plan(30);
+select plan(32);
 
 select has_table('public', 'data_import_batches', 'data import batch ledger exists');
 select ok((select relrowsecurity from pg_class where oid = 'public.data_import_batches'::regclass), 'RLS is enabled on data import batches');
