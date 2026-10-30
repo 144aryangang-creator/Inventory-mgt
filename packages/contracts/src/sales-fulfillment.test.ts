@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { fulfillSalesInvoiceSchema, inventoryReferenceQuerySchema } from './sales-fulfillment'
+import {
+  fulfillSalesInvoiceSchema,
+  inventoryReferenceQuerySchema,
+  returnSalesFulfillmentSchema,
+} from './sales-fulfillment'
 
 const organizationId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const documentId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
 const warehouseId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const fulfillmentId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+const fulfillmentLineId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
 
 describe('sales fulfillment contracts', () => {
   it('accepts exact identifiers and idempotency key', () => {
@@ -18,6 +24,36 @@ describe('sales fulfillment contracts', () => {
   it('rejects malformed identifiers and empty request keys', () => {
     expect(fulfillSalesInvoiceSchema.safeParse({ organizationId, documentId: '../invoice', warehouseId, requestKey: 'x' }).success).toBe(false)
     expect(fulfillSalesInvoiceSchema.safeParse({ organizationId, documentId, warehouseId, requestKey: ' ' }).success).toBe(false)
+  })
+
+  it('validates exact decimal sales return quantities', () => {
+    expect(returnSalesFulfillmentSchema.safeParse({
+      organizationId,
+      fulfillmentId,
+      lines: [{ fulfillmentLineId, quantity: '1.250000' }],
+      reason: 'Customer return',
+      requestKey: 'return-1',
+    }).success).toBe(true)
+    expect(returnSalesFulfillmentSchema.safeParse({
+      organizationId,
+      fulfillmentId,
+      lines: [{ fulfillmentLineId, quantity: 1.25 }],
+      reason: 'Customer return',
+      requestKey: 'return-1',
+    }).success).toBe(false)
+  })
+
+  it('rejects duplicate fulfillment lines in one return request', () => {
+    expect(returnSalesFulfillmentSchema.safeParse({
+      organizationId,
+      fulfillmentId,
+      lines: [
+        { fulfillmentLineId, quantity: '1' },
+        { fulfillmentLineId, quantity: '1' },
+      ],
+      reason: 'Customer return',
+      requestKey: 'return-2',
+    }).success).toBe(false)
   })
 
   it('bounds inventory reference lookups', () => {
