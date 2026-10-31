@@ -98,13 +98,13 @@ test('user can onboard, import master data and receive supplier stock', async ({
   await expect(page.getByRole('heading', { name: 'Purchase Receipts' })).toBeVisible()
   await page.getByRole('button', { name: 'Receive goods' }).click()
 
-  await page.getByLabel('Supplier').selectOption({ label: `${supplierCode} · ${supplierName}` })
-  await page.getByLabel('Receiving warehouse').selectOption({ label: `${warehouseCode} · ${warehouseName}` })
-  await page.getByLabel('Supplier delivery / reference').fill(`E2E-DN-${suffix}`)
-  await page.getByLabel('Notes').fill('Posted by real-stack Playwright E2E')
-  await page.getByLabel('Item').selectOption({ label: `${sku} · ${itemName}` })
+  await page.getByLabel('Supplier', { exact: true }).selectOption({ label: `${supplierCode} · ${supplierName}` })
+  await page.getByLabel('Receiving warehouse', { exact: true }).selectOption({ label: `${warehouseCode} · ${warehouseName}` })
+  await page.getByLabel('Supplier delivery / reference', { exact: true }).fill(`E2E-DN-${suffix}`)
+  await page.getByLabel('Notes', { exact: true }).fill('Posted by real-stack Playwright E2E')
+  await page.getByLabel('Item', { exact: true }).selectOption({ label: `${sku} · ${itemName}` })
   await page.getByLabel(/^Quantity/).fill('3')
-  await page.getByLabel('Unit cost').fill('100.50')
+  await page.getByLabel('Unit cost', { exact: true }).fill('100.50')
 
   page.once('dialog', async (dialog) => {
     expect(dialog.message()).toContain('receipt becomes immutable')
