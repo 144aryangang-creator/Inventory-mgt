@@ -9,10 +9,11 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
 - Main branch: foundation work is **not merged yet**
-- Database CI: **GREEN** — run `40985726873`
-- Application CI: **GREEN** — run `40985559971`
-- Database migrations: through `20261030002900_operational_dashboard.sql`
-- pgTAP suites: `001–020`
+- Database CI: **GREEN** — run `40987922831`
+- Application CI: **GREEN** — run `41221818608`
+- Browser E2E: **GREEN** — run `41221818553`
+- Database migrations: through `20261030003300_bulk_import_payload_null_hardening.sql`
+- pgTAP suites: `001–023`
 - Production deployment: **not started**
 - Production credentials/customer data: **not configured or committed**
 
@@ -75,6 +76,8 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 - immutable partial sales returns
 - returns restore stock to the exact original shipping warehouse
 - physical return and financial credit remain separate ledgers
+- fulfillment API is explicitly mounted under `/v1/financial-documents`
+- worker-level route-mount regression prevents silent fulfillment-route removal
 
 ### Customer payments
 
@@ -113,7 +116,53 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 - read-only audit-log API + `/audit` workspace
 - `/` operational dashboard
 - `/v1/operations` API routes
-- Purchase Receipts + Audit Log sidebar navigation
+
+### Secure CSV bulk data V1
+
+- `/data` Import / Export workspace
+- versioned CSV schema (`1`)
+- Items import/export
+- Customers import/export
+- Suppliers import/export
+- Opening Stock template/import
+- mandatory dry-run before UI import
+- API CSV grammar + row-schema validation
+- PostgreSQL-authoritative validation at execution time
+- atomic import transaction per batch
+- create-only V1 semantics
+- immutable `data_import_batches`
+- request-key idempotency + audit
+- spreadsheet/formula-injection defense
+- exact decimal Opening Stock quantity/cost
+- strict header order
+- quoted commas/quotes/newlines supported
+- NUL/malformed quote rejection
+- 1,000 data rows / 2 MiB limits
+
+See `docs/BULK_DATA.md`.
+
+### Real-stack browser E2E
+
+Playwright runs against local Supabase Auth/PostgREST/PostgreSQL + Cloudflare Worker + React/Vite + Chromium.
+
+Currently proven through the browser:
+
+- login + first-organization onboarding
+- Item CSV dry-run/import
+- warehouse creation
+- Supplier CSV dry-run/import
+- Purchase Receipt posting + immutable GRN detail
+- inventory balance verification
+- seller billing-profile creation
+- customer + billing-address creation
+- stock-backed tax-invoice draft
+- stock line + PostgreSQL-authoritative tax calculation
+- immutable invoice issue
+- fulfillment summary route
+- partial fulfillment
+- resulting stock decrement (`receipt 3 → sale 1 → on-hand 2`)
+
+Latest Browser E2E: run `41221818553` — **GREEN**.
 
 ## Architecture
 
@@ -132,6 +181,7 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 | Fulfillment | Multiple immutable one-warehouse postings per invoice |
 | Returns | Immutable physical return ledger tied to exact fulfillment |
 | Purchase receiving | Immutable physical receipt ledger; AP remains separate |
+| Bulk data | Versioned, dry-run-first, server-authoritative CSV V1 |
 | Reporting | Server/database-derived, currency/UOM safe |
 | Document output | Authenticated print route; browser Print / Save PDF first |
 | CI/CD | GitHub Actions |
@@ -165,10 +215,12 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 24. Physical returns and financial credits are separate immutable ledgers.
 25. Active commercial + return-linked credits share one taxable-value ceiling per original invoice line.
 26. Purchase receipts are physical logistics only; they do not create AP/payables.
-27. Purchase receipt rows and their inventory movement links are immutable.
+27. Purchase receipt rows and inventory movement links are immutable.
 28. Dashboard financial totals are never summed across currencies.
 29. Inventory reporting never sums unrelated item/UOM quantities into one stock total.
 30. Audit viewer is read-only and remains governed by tenant/RBAC database security.
+31. Bulk dry-run is advisory; execution always re-validates authoritative database state.
+32. CSV financial values never become authoritative accounting calculations.
 
 ## Database milestones
 
@@ -203,15 +255,22 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the security
 27. `20261030002700_purchase_receipts.sql`
 28. `20261030002800_purchase_receipt_error_hardening.sql`
 29. `20261030002900_operational_dashboard.sql`
+30. `20261030003000_bulk_imports.sql`
+31. `20261030003100_bulk_import_validation.sql`
+32. `20261030003200_bulk_import_payload_hardening.sql`
+33. `20261030003300_bulk_import_payload_null_hardening.sql`
 
 Do not reuse an existing migration version.
 
 ### pgTAP
 
-- suites `001–020` are green
+- suites `001–023` are green
 - `018_partial_multiwarehouse_fulfillment.test.sql` — 36 assertions
 - `019_purchase_receipts.test.sql` — 40 assertions
 - `020_operational_dashboard.test.sql` — 18 assertions
+- `021_bulk_imports.test.sql` — 32 assertions
+- `022_bulk_import_validation.test.sql` — 12 assertions
+- `023_bulk_import_payload_hardening.test.sql` — 6 assertions
 
 ## API domains
 
@@ -229,6 +288,7 @@ Implemented:
 - customer payments + reversals/refunds
 - purchase receipts
 - operational dashboard + audit history
+- bulk CSV import/export
 
 ## Web routes
 
@@ -241,6 +301,7 @@ Implemented:
 - `/invoices`
 - `/payments`
 - `/audit`
+- `/data` — Import / Export
 - `/settings`
 - `/financial-documents/:documentId/print?organizationId=...`
 
@@ -248,55 +309,65 @@ Implemented:
 
 ### Database CI — GREEN
 
-Run `40985726873`:
+Run `40987922831`:
 
-- reduced Postgres-only Supabase startup: passed
-- migration rebuild through `20261030002900`: passed
+- migration rebuild through `20261030003300`: passed
 - schema lint: passed
-- pgTAP suites `001–020`: passed
+- pgTAP suites `001–023`: passed
 - clean shutdown: passed
 
 ### Application CI — GREEN
 
-Run `40985559971`:
+Run `41221818608`:
 
 - `npm ci`: passed
 - lockfile drift check: passed
 - strict TypeScript: passed
 - contracts/API/web tests: passed
+- fulfillment-route mount regression: passed
 - Cloudflare Worker production build: passed
 - React/Vite production build: passed
 
-## Remaining V1 gaps
+### Browser E2E — GREEN
+
+Run `41221818553`:
+
+- real local Supabase stack: passed
+- ephemeral auth user: passed
+- real Worker + React app: passed
+- supplier receiving path: passed
+- tax invoice issue path: passed
+- partial fulfillment path: passed
+- stock decrement assertion: passed
+
+## Remaining V1 / production-readiness gaps
 
 High priority:
 
-1. **Secure CSV/Excel import/export.**
-2. **Browser E2E / Playwright coverage** for the critical business paths.
-3. Production deployment + secret management.
-4. Backups + tested restore drill.
-5. Monitoring/alerting + error tracking.
-6. Privileged-account MFA + production security review.
-7. Dependency/security scanning + load/concurrency tests.
-8. Trusted GST registration verification integration.
-9. Supplier invoice / Accounts Payable workflow remains a later accounting module and must link to—not rewrite—purchase receipts.
+1. Extend Browser E2E to multi-warehouse completion, physical return, return-linked credit, payment corrections, print, dashboard and audit.
+2. Production deployment + secret management.
+3. Backups + tested restore drill.
+4. Monitoring/alerting + error tracking.
+5. Privileged-account MFA + production security review.
+6. Dependency/security scanning + load/concurrency tests.
+7. Trusted GST registration verification integration.
+8. `.xlsx` import/export only after CSV remains stable and parser/license review is complete.
+9. Supplier invoice / Accounts Payable remains a later accounting module and must link to—not rewrite—Purchase Receipts.
 
 ## Next engineering task — resume here
 
-**Build secure bulk import/export, then browser E2E coverage.**
+**Continue real-stack Browser E2E from the now-green partial fulfillment checkpoint.**
 
-Recommended import/export order:
+Recommended order:
 
-1. versioned CSV schema for Items, Customers, Suppliers and Opening Stock
-2. dry-run validation endpoint before mutation
-3. explicit row-level errors with row number + field + error code
-4. server-authoritative tenant IDs, snapshots, roles, taxes and calculations
-5. idempotent import batch IDs + audit events
-6. atomic batch semantics unless a workflow explicitly supports partial acceptance
-7. stable export column order + explicit currency/UOM semantics
-8. CSV/formula-injection protection for spreadsheet-compatible exports
-9. `.xlsx` support only after CSV contracts are stable and parser/license review is complete
-10. Playwright E2E after import/export contracts stabilize
+1. complete the remaining invoice quantity from a second warehouse
+2. verify aggregate status becomes `fulfilled`
+3. record a physical return against the exact fulfillment posting
+4. issue a return-linked credit note
+5. exercise customer receipt + allocation reversal/refund
+6. verify immutable document print route
+7. verify operational dashboard + audit events
+8. then begin production hardening
 
 ## Customization rule
 
@@ -306,6 +377,6 @@ Use relational columns for core/query-critical data; controlled JSON/metadata on
 
 ## Security reference
 
-See `docs/SECURITY_MODEL.md` and `docs/OPERATIONAL_VISIBILITY.md`.
+See `docs/SECURITY_MODEL.md`, `docs/OPERATIONAL_VISIBILITY.md` and `docs/BULK_DATA.md`.
 
-Production still requires browser E2E tests, dependency/security review, concurrency/load tests, backup/restore validation, production secret management, privileged-account MFA, monitoring and alerting.
+Production still requires broader browser E2E coverage, dependency/security review, concurrency/load tests, backup/restore validation, production secret management, privileged-account MFA, monitoring and alerting.
