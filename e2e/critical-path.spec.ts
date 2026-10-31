@@ -7,7 +7,7 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('user can onboard, receive supplier stock and issue a stock invoice', async ({ page }, testInfo) => {
+test('user can onboard, receive supplier stock, issue and partially fulfill a stock invoice', async ({ page }, testInfo) => {
   const suffix = testInfo.retry + 1
   const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
   const itemName = `E2E Imported Widget ${suffix}`
@@ -203,4 +203,23 @@ test('user can onboard, receive supplier stock and issue a stock invoice', async
   await page.getByRole('button', { name: 'Issue invoice' }).click()
   await expect(page.locator('.invoice-detail-header')).toContainText('Issued')
   await expect(page.locator('.invoice-totals')).toContainText('1180')
+
+  // Post only half of the invoiced quantity and verify the server-derived partial status.
+  const fulfillmentPanel = page.locator('.invoice-fulfillment').first()
+  await expect(fulfillmentPanel).toContainText('Unfulfilled')
+  await fulfillmentPanel.getByRole('button', { name: 'Post fulfillment' }).click()
+  const fulfillmentForm = page.locator('form.invoice-return-form')
+  await fulfillmentForm.getByRole('combobox').selectOption({ label: `${warehouseCode} · ${warehouseName}` })
+  await fulfillmentForm.getByPlaceholder('Quantity shipping now').fill('1')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('immutable sale movements')
+    await dialog.accept()
+  })
+  await fulfillmentForm.getByRole('button', { name: 'Post fulfillment' }).click()
+  await expect(page.locator('.invoice-fulfillment').first()).toContainText('Partially fulfilled')
+
+  await navigation.getByRole('link', { name: 'Inventory' }).click()
+  const postSaleBalance = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: warehouseCode })
+  await expect(postSaleBalance).toBeVisible()
+  await expect(postSaleBalance).toContainText('2 EA')
 })
