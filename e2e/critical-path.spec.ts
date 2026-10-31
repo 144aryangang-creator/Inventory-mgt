@@ -7,7 +7,7 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('user can onboard, import master data and receive supplier stock', async ({ page }, testInfo) => {
+test('user can onboard, receive supplier stock and issue a stock invoice', async ({ page }, testInfo) => {
   const suffix = testInfo.retry + 1
   const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
   const itemName = `E2E Imported Widget ${suffix}`
@@ -16,6 +16,11 @@ test('user can onboard, import master data and receive supplier stock', async ({
   const supplierCode = `E2E-SUP-${String(suffix).padStart(3, '0')}`
   const supplierName = `E2E Supplier ${suffix}`
   const supplierLegalName = `E2E Supplier ${suffix} Private Limited`
+  const customerCode = `E2E-CUST-${String(suffix).padStart(3, '0')}`
+  const customerName = `E2E Customer ${suffix}`
+  const customerLegalName = `${customerName} Private Limited`
+  const sellerCode = `E2E-SELL-${String(suffix).padStart(3, '0')}`
+  const sellerLegalName = `E2E Seller ${suffix} Private Limited`
 
   await page.goto('/login')
 
@@ -126,4 +131,76 @@ test('user can onboard, import master data and receive supplier stock', async ({
   const balanceRow = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: warehouseCode })
   await expect(balanceRow).toBeVisible()
   await expect(balanceRow).toContainText('3 EA')
+
+  // Create a seller legal profile used for immutable invoice snapshots.
+  await navigation.getByRole('link', { name: 'Settings' }).click()
+  await expect(page.getByRole('heading', { name: 'Seller & billing settings' })).toBeVisible()
+  await page.getByRole('button', { name: 'New seller profile' }).click()
+  const sellerForm = page.locator('form.seller-form')
+  await sellerForm.getByLabel('Profile code').fill(sellerCode)
+  await sellerForm.getByLabel('Legal name').fill(sellerLegalName)
+  await sellerForm.getByLabel('Registered address').fill('1 E2E Seller Road')
+  await sellerForm.getByLabel('City').fill('Bhopal')
+  await sellerForm.getByLabel('State name').fill('Madhya Pradesh')
+  await sellerForm.getByLabel('State code').fill('23')
+  await sellerForm.getByLabel('Postal code').fill('462001')
+  await sellerForm.getByRole('button', { name: 'Save profile' }).click()
+  await expect(page.locator('.seller-profile-card').filter({ hasText: sellerCode })).toContainText(sellerLegalName)
+
+  // Create a customer and the billing address required by invoice snapshotting.
+  await navigation.getByRole('link', { name: 'Customers' }).click()
+  await expect(page.getByRole('heading', { name: 'Customers' })).toBeVisible()
+  await page.getByRole('button', { name: 'New Customer' }).click()
+  const customerForm = page.locator('form.party-form')
+  await customerForm.getByLabel('Code').fill(customerCode)
+  await customerForm.getByLabel('Legal name').fill(customerLegalName)
+  await customerForm.getByLabel('Display name').fill(customerName)
+  await customerForm.getByRole('button', { name: 'Create Customer' }).click()
+
+  const customerRow = page.locator('.party-row').filter({ hasText: customerCode }).first()
+  await expect(customerRow).toContainText(customerName)
+  await customerRow.getByRole('button', { name: 'Manage' }).click()
+
+  const addressForm = page.locator('form.profile-form').filter({ has: page.getByRole('heading', { name: 'Add address' }) })
+  await addressForm.getByLabel('Recipient name').fill(customerName)
+  await addressForm.getByLabel('Address line 1').fill('20 E2E Customer Road')
+  await addressForm.getByLabel('City').fill('Bhopal')
+  await addressForm.getByLabel('State name').fill('Madhya Pradesh')
+  await addressForm.getByLabel('State code').fill('23')
+  await addressForm.getByLabel('Postal code').fill('462001')
+  await addressForm.getByRole('button', { name: 'Add address' }).click()
+  await expect(page.locator('.profile-record').filter({ hasText: '20 E2E Customer Road' })).toBeVisible()
+
+  // Create and issue a stock-backed intra-state invoice.
+  await navigation.getByRole('link', { name: 'Invoices' }).click()
+  await expect(page.getByRole('heading', { name: 'Invoices' })).toBeVisible()
+  await page.getByRole('button', { name: 'New tax invoice' }).click()
+
+  const invoiceForm = page.locator('form.invoice-form')
+  const invoiceSelects = invoiceForm.getByRole('combobox')
+  await expect(invoiceSelects).toHaveCount(6)
+  await invoiceSelects.nth(0).selectOption({ label: `${sellerCode} · ${sellerLegalName}` })
+  await invoiceSelects.nth(1).selectOption({ label: `${customerCode} · ${customerName}` })
+  await expect(invoiceSelects.nth(2).locator('option:checked')).not.toHaveValue('')
+  await invoiceForm.getByLabel('Series').fill('INV')
+  await invoiceForm.getByLabel('Notes').fill('Issued by real-stack Playwright E2E')
+  await invoiceForm.getByRole('button', { name: 'Create draft' }).click()
+
+  const lineForm = page.locator('form.invoice-line-form')
+  await expect(lineForm).toBeVisible()
+  await lineForm.getByRole('combobox').selectOption({ label: `${sku} · ${itemName}` })
+  await lineForm.getByLabel('Description').fill(itemName)
+  await lineForm.getByLabel('HSN/SAC').fill('8708')
+  await lineForm.getByLabel('Quantity').fill('2')
+  await lineForm.getByLabel('Unit price').fill('500')
+  await lineForm.getByRole('button', { name: 'Add line' }).click()
+  await expect(page.locator('.invoice-line-row').filter({ hasText: itemName })).toBeVisible()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('become immutable')
+    await dialog.accept()
+  })
+  await page.getByRole('button', { name: 'Issue invoice' }).click()
+  await expect(page.locator('.invoice-detail-header')).toContainText('Issued')
+  await expect(page.locator('.invoice-totals')).toContainText('1180')
 })
