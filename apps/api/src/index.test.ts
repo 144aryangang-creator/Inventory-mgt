@@ -37,6 +37,19 @@ describe('API security boundaries', () => {
     })
   })
 
+  it('keeps sales-fulfillment routes mounted behind authentication', async () => {
+    const documentId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const organizationId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const response = await app.request(
+      `/v1/financial-documents/${documentId}/fulfillments?organizationId=${organizationId}`,
+      {},
+      env,
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({ error: 'unauthorized' })
+  })
+
   it('rejects an empty bearer token', async () => {
     const response = await app.request(
       '/v1/organizations',
