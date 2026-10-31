@@ -7,12 +7,14 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('user can onboard, receive supplier stock, issue and partially fulfill a stock invoice', async ({ page }, testInfo) => {
+test('user can onboard, receive supplier stock, issue and fulfill a stock invoice across two warehouses', async ({ page }, testInfo) => {
   const suffix = testInfo.retry + 1
   const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
   const itemName = `E2E Imported Widget ${suffix}`
   const warehouseCode = `E2E-WH-${String(suffix).padStart(3, '0')}`
   const warehouseName = `E2E Warehouse ${suffix}`
+  const secondWarehouseCode = `E2E-WH2-${String(suffix).padStart(3, '0')}`
+  const secondWarehouseName = `E2E Warehouse Two ${suffix}`
   const supplierCode = `E2E-SUP-${String(suffix).padStart(3, '0')}`
   const supplierName = `E2E Supplier ${suffix}`
   const supplierLegalName = `E2E Supplier ${suffix} Private Limited`
@@ -79,6 +81,11 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
   await warehousePanel.getByRole('button', { name: 'Add warehouse' }).click()
   await expect(warehousePanel.getByRole('article').filter({ hasText: warehouseCode })).toContainText(warehouseName)
 
+  await warehousePanel.getByLabel('Code').fill(secondWarehouseCode)
+  await warehousePanel.getByLabel('Name').fill(secondWarehouseName)
+  await warehousePanel.getByRole('button', { name: 'Add warehouse' }).click()
+  await expect(warehousePanel.getByRole('article').filter({ hasText: secondWarehouseCode })).toContainText(secondWarehouseName)
+
   await navigation.getByRole('link', { name: 'Import / Export' }).click()
   await page.locator('.bulk-entities button').filter({ hasText: 'Suppliers' }).click()
   await expect(page.getByRole('heading', { name: 'Suppliers' })).toBeVisible()
@@ -103,8 +110,8 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
   await expect(page.getByRole('heading', { name: 'Purchase Receipts' })).toBeVisible()
   await page.getByRole('button', { name: 'Receive goods' }).click()
 
-  const receiptForm = page.locator('form.purchase-receipt-form')
-  const receiptSelects = receiptForm.getByRole('combobox')
+  let receiptForm = page.locator('form.purchase-receipt-form')
+  let receiptSelects = receiptForm.getByRole('combobox')
   await expect(receiptSelects).toHaveCount(3)
   await receiptSelects.nth(0).selectOption({ label: `${supplierCode} · ${supplierName}` })
   await receiptSelects.nth(1).selectOption({ label: `${warehouseCode} · ${warehouseName}` })
@@ -118,19 +125,39 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
     expect(dialog.message()).toContain('receipt becomes immutable')
     await dialog.accept()
   })
-  await page.getByRole('button', { name: 'Post purchase receipt' }).click()
+  await receiptForm.getByRole('button', { name: 'Post purchase receipt' }).click()
 
-  const receiptRow = page.locator('.purchase-receipt-list-row').filter({ hasText: supplierName }).first()
+  const receiptRow = page.locator('.purchase-receipt-list-row').filter({ hasText: supplierName }).filter({ hasText: warehouseCode }).first()
   await expect(receiptRow).toBeVisible()
-  await expect(receiptRow).toContainText(warehouseCode)
   await expect(page.locator('.purchase-receipt-detail-header').getByRole('heading', { name: supplierLegalName })).toBeVisible()
   await expect(page.locator('.purchase-receipt-detail-lines').getByText(itemName)).toBeVisible()
   await expect(page.locator('.purchase-receipt-detail-lines')).toContainText('Unit cost 100.5')
+
+  // Receive one additional unit into a second warehouse so the same invoice can be completed across warehouses.
+  await page.getByRole('button', { name: 'Receive goods' }).click()
+  receiptForm = page.locator('form.purchase-receipt-form')
+  receiptSelects = receiptForm.getByRole('combobox')
+  await receiptSelects.nth(0).selectOption({ label: `${supplierCode} · ${supplierName}` })
+  await receiptSelects.nth(1).selectOption({ label: `${secondWarehouseCode} · ${secondWarehouseName}` })
+  await page.getByLabel('Supplier delivery / reference', { exact: true }).fill(`E2E-DN2-${suffix}`)
+  await page.getByLabel('Notes', { exact: true }).fill('Second warehouse receipt for multi-warehouse E2E')
+  await receiptSelects.nth(2).selectOption({ label: `${sku} · ${itemName}` })
+  await page.getByLabel(/^Quantity/).fill('1')
+  await page.getByLabel('Unit cost', { exact: true }).fill('100.50')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('receipt becomes immutable')
+    await dialog.accept()
+  })
+  await receiptForm.getByRole('button', { name: 'Post purchase receipt' }).click()
+  await expect(page.locator('.purchase-receipt-list-row').filter({ hasText: secondWarehouseCode }).first()).toBeVisible()
 
   await navigation.getByRole('link', { name: 'Inventory' }).click()
   const balanceRow = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: warehouseCode })
   await expect(balanceRow).toBeVisible()
   await expect(balanceRow).toContainText('3 EA')
+  const secondBalanceRow = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: secondWarehouseCode })
+  await expect(secondBalanceRow).toBeVisible()
+  await expect(secondBalanceRow).toContainText('1 EA')
 
   // Create a seller legal profile used for immutable invoice snapshots.
   await navigation.getByRole('link', { name: 'Settings' }).click()
@@ -183,7 +210,7 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
   await invoiceSelects.nth(1).selectOption({ label: `${customerCode} · ${customerName}` })
   await expect(invoiceSelects.nth(2).locator('option:checked')).not.toHaveValue('')
   await invoiceForm.getByLabel('Series').fill('INV')
-  await invoiceForm.getByLabel('Notes').fill('Issued by real-stack Playwright E2E')
+  await invoiceForm.getByLabel('Notes').fill(`Issued by real-stack Playwright E2E ${suffix}`)
   await invoiceForm.getByRole('button', { name: 'Create draft' }).click()
 
   const lineForm = page.locator('form.invoice-line-form')
@@ -204,11 +231,11 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
   await expect(page.locator('.invoice-detail-header')).toContainText('Issued')
   await expect(page.locator('.invoice-totals')).toContainText('1180')
 
-  // Post only half of the invoiced quantity and verify the server-derived partial status.
+  // Post half of the invoiced quantity from warehouse one.
   const fulfillmentPanel = page.locator('.invoice-fulfillment').first()
   await expect(fulfillmentPanel).toContainText('Unfulfilled')
   await fulfillmentPanel.getByRole('button', { name: 'Post fulfillment' }).click()
-  const fulfillmentForm = page.locator('form.invoice-return-form')
+  let fulfillmentForm = page.locator('form.invoice-return-form')
   await fulfillmentForm.getByRole('combobox').selectOption({ label: `${warehouseCode} · ${warehouseName}` })
   await fulfillmentForm.getByPlaceholder('Quantity shipping now').fill('1')
   page.once('dialog', async (dialog) => {
@@ -217,6 +244,23 @@ test('user can onboard, receive supplier stock, issue and partially fulfill a st
   })
   await fulfillmentForm.getByRole('button', { name: 'Post fulfillment' }).click()
   await expect(page.locator('.invoice-fulfillment').first()).toContainText('Partially fulfilled')
+
+  // Complete the remaining invoice quantity from warehouse two.
+  await page.locator('.invoice-fulfillment').first().getByRole('button', { name: 'Post fulfillment' }).click()
+  fulfillmentForm = page.locator('form.invoice-return-form')
+  await fulfillmentForm.getByRole('combobox').selectOption({ label: `${secondWarehouseCode} · ${secondWarehouseName}` })
+  await fulfillmentForm.getByPlaceholder('Quantity shipping now').fill('1')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('immutable sale movements')
+    await dialog.accept()
+  })
+  await fulfillmentForm.getByRole('button', { name: 'Post fulfillment' }).click()
+
+  const fulfilledPanel = page.locator('.invoice-fulfillment').first()
+  await expect(fulfilledPanel).toContainText('Fulfilled')
+  await expect(page.locator('.invoice-fulfillment-posting')).toHaveCount(2)
+  await expect(page.locator('.invoice-fulfillment-posting').filter({ hasText: warehouseCode })).toHaveCount(1)
+  await expect(page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode })).toHaveCount(1)
 
   await navigation.getByRole('link', { name: 'Inventory' }).click()
   const postSaleBalance = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: warehouseCode })
