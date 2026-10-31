@@ -2,7 +2,7 @@
 
 ## Stable checkpoint
 
-**Secure CSV bulk import/export V1 and the real-stack supplier purchase-receipt browser path are CI-green.**
+**Secure CSV bulk import/export V1 plus the real-stack stock-sales path through partial fulfillment are CI-green.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
@@ -15,47 +15,59 @@ Main branch: foundation work is not merged yet.
   - DB lint passed
   - pgTAP suites `001–023` passed
   - clean shutdown passed
-- Application CI: **GREEN** — run `40987757450`
+- Application CI: **GREEN** — run `41221818608`
   - locked install + lockfile drift passed
   - strict TypeScript passed
   - contract/API/web unit tests passed
+  - fulfillment-route mount regression passed
   - Cloudflare Worker build passed
   - React/Vite production build passed
-- Browser E2E: **GREEN** — run `41220607517`
-  - Playwright `1.64.1`
+- Browser E2E: **GREEN** — run `41221818553`
   - real local Supabase Auth/PostgREST/Postgres + Worker + React + Chromium
   - sign-in + first-organization onboarding
   - Item CSV dry-run/import
-  - inventory verification
   - warehouse creation
   - Supplier CSV dry-run/import
-  - Purchase Receipt posting
-  - immutable GRN detail verification
-  - resulting warehouse stock balance verification
+  - Purchase Receipt posting + immutable GRN detail
+  - inventory balance verification
+  - seller billing-profile creation
+  - customer + billing-address creation
+  - stock-backed tax-invoice draft + line + issue
+  - PostgreSQL-authoritative tax total verification
+  - partial stock fulfillment
+  - resulting inventory decrement verification
 
-## Latest completed milestone — real-stack Purchase Receipt browser path
+## Latest completed milestone — real-stack stock sale through partial fulfillment
 
 Critical path now proves through the browser that:
 
-1. user authentication works against real local Supabase Auth
-2. organization onboarding works through the normal API/RLS path
-3. item CSV validation/import reaches PostgreSQL
-4. imported inventory master data appears in the Inventory workspace
-5. an active warehouse can be created
-6. supplier CSV validation/import creates a supplier party
-7. Purchase Receipt can post accepted supplier goods
-8. GRN history/detail remains readable after posting
-9. stock balance reflects the immutable receipt movement
+1. supplier stock can enter through an immutable Purchase Receipt
+2. seller/customer legal snapshots can be configured
+3. a stock-backed tax invoice can be drafted and issued
+4. issue-time totals are produced by PostgreSQL
+5. the issued invoice exposes its fulfillment summary
+6. a partial quantity can leave the selected warehouse
+7. fulfillment status becomes `partial`
+8. warehouse on-hand stock decreases through an immutable `sale` movement
 
-Browser regressions found and fixed:
+### Integration defect found and fixed
 
-- first-organization onboarding became unreachable when `/` moved to the operational dashboard; onboarding was restored there
-- retry-state assertions were made organization-aware
-- purchase-receipt wrapped `<label>` markup caused Playwright label ambiguity; the E2E path now scopes the three receipt `<select>` controls by role inside the receipt form
+Browser E2E exposed that `salesFulfillmentRoutes` existed but was not mounted in the Worker, causing:
 
-Latest E2E fix commit before the green run:
+- `GET /v1/financial-documents/:documentId/fulfillments` → `404`
+- the fulfillment UI to show `Request failed (404)` after invoice issue
 
-- `fd08db364ec95a21bab194038697a0c0224a9c07` — `test(e2e): scope purchase receipt selects by role`
+Fix:
+
+- mounted `salesFulfillmentRoutes` under `/v1/financial-documents`
+- added worker-level auth/reachability regression so the fulfillment route must return the protected-route boundary rather than disappear as a 404
+
+Fix commits:
+
+- `15ab0269b41e32e390879a9b305e376560b57df4` — `fix(api): mount sales fulfillment routes`
+- `e9bc87e914fd8c4cc77941f0f683a3b367f6dd7f` — `test(api): guard fulfillment route mounting`
+
+Validated by Application CI `41221818608` and Browser E2E `41221818553`.
 
 ## Secure CSV bulk data V1
 
@@ -139,13 +151,12 @@ Purchase Receipt remains physical logistics only. It does not create supplier AP
 
 Extend real-stack Browser E2E in this order:
 
-1. seller billing profile + customer profile prerequisites
-2. tax invoice draft + stock-backed line + issue
-3. partial fulfillment from one warehouse, then remaining quantity from another warehouse
-4. physical return + return-linked credit note
-5. customer receipt + allocation reversal/refund
-6. immutable document print route
-7. dashboard + audit-log verification
+1. complete remaining fulfillment quantity from a second warehouse to prove multi-warehouse completion
+2. physical return against the exact fulfillment posting
+3. return-linked credit note
+4. customer receipt + allocation reversal/refund
+5. immutable document print route
+6. dashboard + audit-log verification
 
 After critical E2E flows are green, move to production hardening:
 
