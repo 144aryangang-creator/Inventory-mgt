@@ -7,7 +7,7 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('user can onboard, receive supplier stock, issue and fulfill a stock invoice across two warehouses', async ({ page }, testInfo) => {
+test('user can onboard, receive supplier stock, fulfill across warehouses, return stock and issue a return credit', async ({ page }, testInfo) => {
   const suffix = testInfo.retry + 1
   const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
   const itemName = `E2E Imported Widget ${suffix}`
@@ -262,8 +262,42 @@ test('user can onboard, receive supplier stock, issue and fulfill a stock invoic
   await expect(page.locator('.invoice-fulfillment-posting').filter({ hasText: warehouseCode })).toHaveCount(1)
   await expect(page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode })).toHaveCount(1)
 
+  // Return the unit from the exact second-warehouse posting.
+  let secondPosting = page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode }).first()
+  await secondPosting.getByRole('button', { name: 'Record return' }).click()
+  let returnForm = secondPosting.locator('form.invoice-return-form')
+  await returnForm.getByPlaceholder('Return quantity').fill('1')
+  await returnForm.getByLabel('Return reason').fill('E2E customer return')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Stock will return')
+    await dialog.accept()
+  })
+  await returnForm.getByRole('button', { name: 'Post sales return' }).click()
+
+  secondPosting = page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode }).first()
+  await expect(secondPosting).toContainText('E2E customer return')
+  await expect(secondPosting.getByRole('button', { name: 'Issue credit note' })).toBeVisible()
+
+  // Issue the financial credit from the immutable physical return.
+  await secondPosting.getByRole('button', { name: 'Issue credit note' }).click()
+  const creditForm = secondPosting.locator('form.invoice-return-form')
+  await creditForm.getByPlaceholder('Quantity to credit').fill('1')
+  await creditForm.getByLabel('Series').fill('CRN')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Issue this GST credit note')
+    await dialog.accept()
+  })
+  await creditForm.getByRole('button', { name: 'Issue return credit note' }).click()
+
+  secondPosting = page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode }).first()
+  await expect(secondPosting).toContainText('CRN/')
+  await expect(secondPosting).toContainText('issued')
+
   await navigation.getByRole('link', { name: 'Inventory' }).click()
   const postSaleBalance = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: warehouseCode })
   await expect(postSaleBalance).toBeVisible()
   await expect(postSaleBalance).toContainText('2 EA')
+  const returnedWarehouseBalance = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: secondWarehouseCode })
+  await expect(returnedWarehouseBalance).toBeVisible()
+  await expect(returnedWarehouseBalance).toContainText('1 EA')
 })
