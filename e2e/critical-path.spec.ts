@@ -7,7 +7,7 @@ if (!email || !password) {
   throw new Error('E2E_EMAIL and E2E_PASSWORD are required')
 }
 
-test('user can onboard, receive supplier stock, fulfill across warehouses, return stock and issue a return credit', async ({ page }, testInfo) => {
+test('critical inventory, sales, return-credit and payment-ledger path stays consistent', async ({ page }, testInfo) => {
   const suffix = testInfo.retry + 1
   const sku = `E2E-ITEM-${String(suffix).padStart(3, '0')}`
   const itemName = `E2E Imported Widget ${suffix}`
@@ -265,7 +265,7 @@ test('user can onboard, receive supplier stock, fulfill across warehouses, retur
   // Return the unit from the exact second-warehouse posting.
   let secondPosting = page.locator('.invoice-fulfillment-posting').filter({ hasText: secondWarehouseCode }).first()
   await secondPosting.getByRole('button', { name: 'Record return' }).click()
-  let returnForm = secondPosting.locator('form.invoice-return-form')
+  const returnForm = secondPosting.locator('form.invoice-return-form')
   await returnForm.getByPlaceholder('Return quantity').fill('1')
   await returnForm.getByLabel('Return reason').fill('E2E customer return')
   page.once('dialog', async (dialog) => {
@@ -300,4 +300,49 @@ test('user can onboard, receive supplier stock, fulfill across warehouses, retur
   const returnedWarehouseBalance = page.locator('.inventory-balance-panel .inventory-table-row').filter({ hasText: sku }).filter({ hasText: secondWarehouseCode })
   await expect(returnedWarehouseBalance).toBeVisible()
   await expect(returnedWarehouseBalance).toContainText('1 EA')
+
+  // Record a partial customer receipt and apply it atomically to the invoice.
+  await navigation.getByRole('link', { name: 'Payments' }).click()
+  await expect(page.getByRole('heading', { name: 'Payments' })).toBeVisible()
+  const paymentDetail = page.locator('.payment-detail-panel')
+  await expect(paymentDetail).toContainText(customerLegalName)
+  const paymentForm = page.locator('form.payment-form').filter({ has: page.getByRole('heading', { name: 'Record receipt' }) })
+  await paymentForm.getByLabel('Amount').fill('600')
+  await paymentForm.getByLabel('Reference').fill(`E2E-PAY-${suffix}`)
+  await paymentForm.getByLabel('Notes').fill('E2E partial customer receipt')
+  await paymentForm.getByRole('button', { name: 'Record and apply receipt' }).click()
+
+  const balanceGrid = page.locator('.payment-balance-grid')
+  await expect(paymentDetail).toContainText('Part paid')
+  await expect(balanceGrid).toContainText('Net allocated')
+  await expect(balanceGrid).toContainText('INR 600')
+  await expect(balanceGrid).toContainText('Balance due')
+  await expect(balanceGrid).toContainText('INR 580')
+
+  // Reverse only part of the invoice allocation, leaving the original allocation row immutable.
+  const allocationHistory = page.locator('.payment-history').filter({ has: page.getByRole('heading', { name: 'Invoice allocation history' }) })
+  const allocationRecord = allocationHistory.locator('article').first()
+  await allocationRecord.getByRole('button', { name: 'Reverse' }).click()
+  let correctionForm = page.locator('form.payment-form').filter({ has: page.getByRole('heading', { name: 'Reverse allocation' }) })
+  await correctionForm.getByLabel('Amount').fill('100')
+  await correctionForm.getByLabel('Reason').fill('E2E allocation correction')
+  await correctionForm.getByRole('button', { name: 'Record correction' }).click()
+
+  await expect(balanceGrid).toContainText('INR 500')
+  await expect(balanceGrid).toContainText('INR 680')
+  await expect(allocationRecord).toContainText('Reversed INR 100')
+
+  // Refund the now-unallocated 100 without mutating the original payment receipt.
+  const receiptHistory = page.locator('.payment-history').filter({ has: page.getByRole('heading', { name: 'Receipt history' }) })
+  const receiptRecord = receiptHistory.locator('article').filter({ hasText: `E2E-PAY-${suffix}` }).first()
+  await receiptRecord.getByRole('button', { name: 'Refund' }).click()
+  correctionForm = page.locator('form.payment-form').filter({ has: page.getByRole('heading', { name: 'Refund receipt' }) })
+  await correctionForm.getByLabel('Amount').fill('100')
+  await correctionForm.getByLabel('Reason').fill('E2E customer refund')
+  await correctionForm.getByRole('button', { name: 'Record correction' }).click()
+
+  await expect(page.locator('form.payment-form').filter({ has: page.getByRole('heading', { name: 'Refund receipt' }) })).toHaveCount(0)
+  await expect(balanceGrid).toContainText('INR 500')
+  await expect(balanceGrid).toContainText('INR 680')
+  await expect(page.getByRole('alert')).toHaveCount(0)
 })
