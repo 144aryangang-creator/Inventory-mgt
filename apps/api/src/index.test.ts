@@ -8,7 +8,7 @@ const env = {
 }
 
 describe('API security boundaries', () => {
-  it('returns a minimal public health response', async () => {
+  it('returns a minimal public health response with baseline security headers', async () => {
     const response = await app.request('/health', {}, env)
 
     expect(response.status).toBe(200)
@@ -17,15 +17,19 @@ describe('API security boundaries', () => {
       service: 'inventory-mgt-api',
     })
     expect(response.headers.get('x-request-id')).toBeTruthy()
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(response.headers.get('x-frame-options')).toBe('SAMEORIGIN')
+    expect(response.headers.get('referrer-policy')).toBe('no-referrer')
   })
 
-  it('rejects protected API calls without a bearer token', async () => {
+  it('rejects protected API calls without a bearer token and disables caching', async () => {
     const response = await app.request('/v1/organizations', {}, env)
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toMatchObject({
       error: 'unauthorized',
     })
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   it('rejects mounted invoice API calls without a bearer token', async () => {
@@ -35,6 +39,7 @@ describe('API security boundaries', () => {
     await expect(response.json()).resolves.toMatchObject({
       error: 'unauthorized',
     })
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   it('keeps sales-fulfillment routes mounted behind authentication', async () => {
@@ -48,6 +53,7 @@ describe('API security boundaries', () => {
 
     expect(response.status).toBe(401)
     await expect(response.json()).resolves.toMatchObject({ error: 'unauthorized' })
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   it('rejects an empty bearer token', async () => {
@@ -62,6 +68,7 @@ describe('API security boundaries', () => {
     )
 
     expect(response.status).toBe(401)
+    expect(response.headers.get('cache-control')).toBe('no-store')
   })
 
   it('returns a generic not-found response without leaking internals', async () => {
