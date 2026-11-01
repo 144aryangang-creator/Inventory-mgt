@@ -28,5 +28,6 @@ worker.use('/v1/*', async (c, next) => {
   c.header('Cache-Control', 'no-store')
 })
 worker.route('/', app)
+worker.notFound((c) => c.json({ error: 'not_found' }, 404))
 
 export default worker
