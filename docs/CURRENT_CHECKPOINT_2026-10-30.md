@@ -2,7 +2,7 @@
 
 ## Stable checkpoint
 
-**V1 core business workflows, the real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. The next phase is staging deployment.**
+**V1 core business workflows, real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. Staging architecture is now finalized and scaffolded; live deployment is blocked only on external domain/account setup.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
@@ -15,7 +15,6 @@ Main branch: foundation work is **not merged**.
   - DB lint passed
   - pgTAP suites `001–023` passed
 - Application CI: **GREEN** — run `41356175796`
-  - locked install + lockfile drift
   - strict TypeScript
   - API tests `55/55`
   - web tests `12/12`
@@ -33,17 +32,48 @@ Main branch: foundation work is **not merged**.
   - k6 authenticated tenant reads passed
   - concurrent stock-contention invariant passed
 
-## HTTP hardening
+## Finalized staging architecture
 
-All `/v1/*` API responses now explicitly return:
+**User selected Option B. Option A (`*.workers.dev` as the planned staging URL) is rejected.**
+
+Staging topology:
+
+- custom hostname such as `staging.example.com`
+- separate Cloudflare Worker: `inventory-mgt-staging`
+- `workers.dev` disabled for this staging Worker
+- React/Vite SPA + Hono API served from the same staging origin
+- `/v1/*` and `/health` route Worker-first
+- SPA/static assets served by Cloudflare Workers Static Assets
+- completely separate Supabase staging project/database
+- no production credentials or customer data
+
+Implemented files:
+
+- `apps/api/wrangler.staging.jsonc`
+- `.github/workflows/staging-deploy.yml`
+- `docs/STAGING_DEPLOYMENT.md`
+
+The staging workflow is manual-only, environment-scoped, requires exact `DEPLOY-STAGING` confirmation, runs tests/build validation, dry-runs migrations, applies versioned migrations, deploys Worker + SPA, and executes HTTP/security smoke checks.
+
+## External inputs required before first staging deployment
+
+1. actual owned domain / Cloudflare zone
+2. chosen staging hostname
+3. dedicated Supabase staging project
+4. GitHub Actions environment named `staging`
+5. staging variables/secrets documented in `docs/STAGING_DEPLOYMENT.md`
+
+No live staging resources have been created from this repository yet.
+
+## HTTP hardening already present
+
+All `/v1/*` API responses return:
 
 - `Cache-Control: no-store`
 - request ID
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: SAMEORIGIN`
 - `Referrer-Policy: no-referrer`
-
-The outer Worker wrapper preserves the generic JSON `404` boundary.
 
 ## Performance regression baseline
 
@@ -56,58 +86,17 @@ Local real-stack k6 gate:
 - checks: `4,014 / 4,014` passed
 - p95 request duration: `13.61 ms`
 - max request duration: `60.53 ms`
-- threshold: request failures `<1%`
-- threshold: p95 `<1.5s`
-
-This is a **regression baseline**, not a production-capacity claim.
 
 Concurrent stock contention probe:
 
 - seeded exactly `1` unit
 - fired two transfers concurrently
-- result: exactly one `201` and one `409`
-- source ending stock: `0`
-- destination aggregate: `1`
-- negative stock: `0`
+- exactly one `201` and one `409`
+- source ending stock `0`
+- aggregate destination stock `1`
+- negative stock `0`
 
-## Real-stack business path proven
-
-1. authentication + organization onboarding
-2. Item CSV dry-run/import
-3. two warehouses
-4. Supplier CSV dry-run/import
-5. supplier Purchase Receipts into both warehouses
-6. inventory balance verification
-7. seller/legal profile
-8. customer + billing address
-9. stock-backed GST invoice
-10. PostgreSQL tax calculation + immutable issue
-11. partial fulfillment from warehouse 1
-12. remaining fulfillment from warehouse 2
-13. multi-warehouse `fulfilled` state
-14. return against exact warehouse-2 posting
-15. stock restored to warehouse 2
-16. return-linked GST credit note
-17. customer receipt
-18. partial allocation reversal
-19. partial receipt refund
-20. authenticated issued-document print output
-21. operational dashboard
-22. immutable invoice-issue audit event
-
-## Security automation
-
-- `.github/workflows/security-ci.yml`
-  - pinned CodeQL Action `v4.39.1`
-  - `npm audit --audit-level=high`
-  - weekly scheduled execution
-- `.github/dependabot.yml`
-  - weekly npm updates
-  - weekly GitHub Actions updates
-- `.github/workflows/performance-ci.yml`
-  - pinned k6 `2.3.0`
-  - authenticated read regression
-  - real API stock-contention test
+This is a regression baseline, not a production-capacity claim.
 
 ## Stable business modules
 
@@ -145,41 +134,32 @@ Purchase Receipt remains a physical logistics event only; supplier AP/payables a
 - authenticated API responses are non-cacheable
 - no production credentials/customer data in Git
 - bulk dry-run never replaces execution-time DB validation
+- staging and production never share a Supabase database or deployment secrets
 
 ## Active phase — staging deployment
 
 Next sequence:
 
-1. choose staging URL strategy with the user
-2. use a separate Supabase staging project
-3. configure Cloudflare staging Worker/environment and secret separation
-4. deploy versioned DB migrations through CI
-5. deploy API + web to staging
-6. run real staging E2E and OWASP ZAP against the staging URL
-7. automated database backups + restore drill
-8. monitoring / error tracking / alerts
-9. privileged-account MFA policy
-10. production domain/TLS + controlled pilot after staging acceptance
+1. obtain/confirm the real domain and Cloudflare zone
+2. create the separate Supabase staging project
+3. configure the GitHub `staging` environment values/secrets
+4. run `Deploy Staging` from `foundation/bootstrap`
+5. confirm live smoke checks
+6. run real hosted Playwright E2E against staging
+7. run OWASP ZAP / HTTP security scan
+8. automated database backup + restore drill
+9. monitoring / error tracking / alerts
+10. privileged-account MFA policy
+11. production domain/TLS + controlled pilot only after staging acceptance
 
-## Decision required now
+## Resume instruction
 
-Recommended staging architecture:
+Read:
 
-- separate Supabase staging project
-- separate Cloudflare staging Worker/environment
-- no production data or credentials
+- `README.md`
+- `docs/STAGING_DEPLOYMENT.md`
+- this checkpoint
 
-User choice needed for staging URL:
+Then continue from external staging setup. Do not revisit the Option A/Option B decision unless the user explicitly changes it.
 
-- **Option A — recommended initially:** Cloudflare `*.workers.dev` staging URL; lowest setup/cost and fastest to validate.
-- **Option B:** custom staging subdomain such as `staging.example.com`; cleaner/public-facing but requires a domain/DNS decision now.
-
-Later decisions:
-
-- production domain
-- backup retention
-- monitoring/alert destination
-- pilot-user rollout policy
-- paid infrastructure upgrades
-
-Do **not** merge `foundation/bootstrap` into `main` without explicit user authorization.
+**Do not merge `foundation/bootstrap` into `main` without explicit user authorization.**
