@@ -1,3 +1,4 @@
+import { Hono } from 'hono'
 import app from './index'
 import { bulkDataRoutes } from './bulk-data'
 import { customerPaymentRoutes } from './customer-payments'
@@ -19,4 +20,13 @@ app.route('/v1/operations', operationsRoutes)
 app.route('/v1/organization-billing-profiles', organizationBillingRoutes)
 app.route('/v1/purchase-receipts', purchaseReceiptRoutes)
 
-export default app
+// Wrap the complete API after every route has been mounted so authenticated
+// business responses cannot be cached by browsers, shared proxies, or CDNs.
+const worker = new Hono()
+worker.use('/v1/*', async (c, next) => {
+  await next()
+  c.header('Cache-Control', 'no-store')
+})
+worker.route('/', app)
+
+export default worker
