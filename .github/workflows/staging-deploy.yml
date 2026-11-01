@@ -1,0 +1,172 @@
+name: Deploy Staging
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY-STAGING to apply migrations and deploy the staging app'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inventory-mgt-staging-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Migrate and deploy isolated staging
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    env:
+      DEPLOY_CONFIRM: ${{ inputs.confirm }}
+      STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
+      STAGING_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+      STAGING_SUPABASE_DB_URL: ${{ secrets.STAGING_SUPABASE_DB_URL }}
+      STAGING_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Guard explicit staging deployment
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_CONFIRM" != "DEPLOY-STAGING" ]; then
+            echo "::error::Deployment confirmation must be exactly DEPLOY-STAGING"
+            exit 1
+          fi
+
+      - name: Validate required staging configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          required=(
+            STAGING_DOMAIN
+            STAGING_SUPABASE_URL
+            STAGING_SUPABASE_DB_URL
+            STAGING_SUPABASE_PUBLISHABLE_KEY
+            CLOUDFLARE_API_TOKEN
+            CLOUDFLARE_ACCOUNT_ID
+          )
+
+          failed=0
+          for name in "${required[@]}"; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::$name is not configured in the GitHub staging environment"
+              failed=1
+            fi
+          done
+
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+          if [[ "$STAGING_DOMAIN" == http://* || "$STAGING_DOMAIN" == https://* || "$STAGING_DOMAIN" == */* ]]; then
+            echo "::error::STAGING_DOMAIN must be a hostname only, for example staging.example.com"
+            exit 1
+          fi
+
+          if [[ ! "$STAGING_SUPABASE_URL" =~ ^https://[^/]+\.supabase\.co/?$ ]]; then
+            echo "::error::STAGING_SUPABASE_URL must be the hosted Supabase project URL"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: '.nvmrc'
+          package-manager-cache: false
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit and contract tests
+        run: npm test
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb # pinned snapshot
+        with:
+          version: 2.122.0
+
+      - name: Build staging web bundle
+        working-directory: apps/web
+        env:
+          VITE_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.STAGING_SUPABASE_PUBLISHABLE_KEY }}
+          VITE_API_BASE_URL: ''
+        run: npm run build
+
+      - name: Validate staging Worker bundle
+        working-directory: apps/api
+        run: >-
+          npx wrangler deploy
+          --config wrangler.staging.jsonc
+          --dry-run
+          --outdir dist-staging
+          --var "APP_ORIGIN:https://${STAGING_DOMAIN}" "SUPABASE_URL:${STAGING_SUPABASE_URL}"
+
+      - name: Preview pending staging database migrations
+        run: supabase db push --db-url "$STAGING_SUPABASE_DB_URL" --dry-run
+
+      - name: Apply versioned migrations to staging
+        run: supabase db push --db-url "$STAGING_SUPABASE_DB_URL"
+
+      - name: Verify staging migration history
+        run: supabase migration list --db-url "$STAGING_SUPABASE_DB_URL"
+
+      - name: Prepare Worker secret file
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          cat > /tmp/inventory-mgt-staging-worker.env <<EOF
+          SUPABASE_PUBLISHABLE_KEY=$STAGING_SUPABASE_PUBLISHABLE_KEY
+          EOF
+
+      - name: Deploy Worker and SPA to custom staging domain
+        working-directory: apps/api
+        run: >-
+          npx wrangler deploy
+          --config wrangler.staging.jsonc
+          --domain "$STAGING_DOMAIN"
+          --var "APP_ORIGIN:https://${STAGING_DOMAIN}" "SUPABASE_URL:${STAGING_SUPABASE_URL}"
+          --secrets-file /tmp/inventory-mgt-staging-worker.env
+
+      - name: Remove temporary Worker secret file
+        if: always()
+        run: rm -f /tmp/inventory-mgt-staging-worker.env
+
+      - name: Verify live staging health and security boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE_URL="https://${STAGING_DOMAIN}"
+
+          health="$(curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors "${BASE_URL}/health")"
+          echo "$health" | jq -e '.ok == true and .service == "inventory-mgt-api"' >/dev/null
+
+          curl --fail --silent --show-error --retry 6 --retry-delay 3 --retry-all-errors "${BASE_URL}/login" -o /tmp/staging-login.html
+          grep -qi '<html' /tmp/staging-login.html
+
+          status="$(curl --silent --show-error --output /tmp/staging-v1-body.json --dump-header /tmp/staging-v1-headers.txt --write-out '%{http_code}' "${BASE_URL}/v1/me")"
+          if [ "$status" != "401" ]; then
+            echo "::error::Expected unauthenticated /v1/me to return 401; got $status"
+            exit 1
+          fi
+
+          grep -qi '^cache-control: no-store' /tmp/staging-v1-headers.txt
+          grep -qi '^x-content-type-options: nosniff' /tmp/staging-v1-headers.txt
+          grep -qi '^x-frame-options: SAMEORIGIN' /tmp/staging-v1-headers.txt
+          grep -qi '^referrer-policy: no-referrer' /tmp/staging-v1-headers.txt
+
+          echo "Staging smoke checks passed for ${BASE_URL}"
