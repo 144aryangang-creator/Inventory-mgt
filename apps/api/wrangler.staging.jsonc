@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "inventory-mgt-staging",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-11-02",
+  "upload_source_maps": true,
+  "workers_dev": false,
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "../web/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/v1/*",
+      "/health"
+    ]
+  }
+}
