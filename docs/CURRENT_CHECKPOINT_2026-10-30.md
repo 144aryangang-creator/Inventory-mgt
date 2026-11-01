@@ -1,171 +1,131 @@
-# Current Engineering Checkpoint — 2026-10-31
+# Current Engineering Checkpoint — 2026-11-02
 
 ## Stable checkpoint
 
-**Secure CSV bulk import/export V1 plus the real-stack stock-sales path through partial fulfillment are CI-green.**
+**V1 core business workflows are implemented and the complete real-stack browser critical path is green. Production hardening is now the active phase.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
-Main branch: foundation work is not merged yet.
+Main branch: foundation work is **not merged**.
 
-### Current validation gates
+## Validation gates
 
 - Database CI: **GREEN** — run `40987922831`
   - migrations through `20261030003300_bulk_import_payload_null_hardening.sql`
   - DB lint passed
   - pgTAP suites `001–023` passed
-  - clean shutdown passed
 - Application CI: **GREEN** — run `41221818608`
-  - locked install + lockfile drift passed
-  - strict TypeScript passed
-  - contract/API/web unit tests passed
-  - fulfillment-route mount regression passed
-  - Cloudflare Worker build passed
-  - React/Vite production build passed
-- Browser E2E: **GREEN** — run `41221818553`
-  - real local Supabase Auth/PostgREST/Postgres + Worker + React + Chromium
-  - sign-in + first-organization onboarding
-  - Item CSV dry-run/import
-  - warehouse creation
-  - Supplier CSV dry-run/import
-  - Purchase Receipt posting + immutable GRN detail
-  - inventory balance verification
-  - seller billing-profile creation
-  - customer + billing-address creation
-  - stock-backed tax-invoice draft + line + issue
-  - PostgreSQL-authoritative tax total verification
-  - partial stock fulfillment
-  - resulting inventory decrement verification
+  - locked install + lockfile drift
+  - strict TypeScript
+  - contracts/API/web tests
+  - Worker build
+  - React/Vite production build
+- Browser E2E: **GREEN** — run `41355614560`
+  - real Supabase Auth/PostgREST/Postgres
+  - real Worker + React app
+  - Chromium
+  - full V1 business critical path
+- Security CI: **GREEN** — run `41355752128`
+  - high/critical npm dependency audit passed
+  - CodeQL JavaScript/TypeScript passed
+  - production build under CodeQL passed
 
-## Latest completed milestone — real-stack stock sale through partial fulfillment
+## Real-stack business path now proven
 
-Critical path now proves through the browser that:
+1. authentication + organization onboarding
+2. Item CSV dry-run/import
+3. two warehouses
+4. Supplier CSV dry-run/import
+5. supplier Purchase Receipts into both warehouses
+6. inventory balance verification
+7. seller/legal profile
+8. customer + billing address
+9. stock-backed GST invoice
+10. PostgreSQL tax calculation + immutable issue
+11. partial fulfillment from warehouse 1
+12. remaining fulfillment from warehouse 2
+13. multi-warehouse `fulfilled` state
+14. return against exact warehouse-2 posting
+15. stock restored to warehouse 2
+16. return-linked GST credit note
+17. customer receipt
+18. partial allocation reversal
+19. partial receipt refund
+20. authenticated issued-document print output
+21. operational dashboard
+22. immutable invoice-issue audit event
 
-1. supplier stock can enter through an immutable Purchase Receipt
-2. seller/customer legal snapshots can be configured
-3. a stock-backed tax invoice can be drafted and issued
-4. issue-time totals are produced by PostgreSQL
-5. the issued invoice exposes its fulfillment summary
-6. a partial quantity can leave the selected warehouse
-7. fulfillment status becomes `partial`
-8. warehouse on-hand stock decreases through an immutable `sale` movement
+## Security automation added
 
-### Integration defect found and fixed
+- `.github/workflows/security-ci.yml`
+  - pinned CodeQL Action `v4.39.1`
+  - `npm audit --audit-level=high`
+  - weekly scheduled execution
+- `.github/dependabot.yml`
+  - weekly npm version updates
+  - weekly GitHub Actions updates
+  - grouped npm minor/patch updates
 
-Browser E2E exposed that `salesFulfillmentRoutes` existed but was not mounted in the Worker, causing:
-
-- `GET /v1/financial-documents/:documentId/fulfillments` → `404`
-- the fulfillment UI to show `Request failed (404)` after invoice issue
-
-Fix:
-
-- mounted `salesFulfillmentRoutes` under `/v1/financial-documents`
-- added worker-level auth/reachability regression so the fulfillment route must return the protected-route boundary rather than disappear as a 404
-
-Fix commits:
-
-- `15ab0269b41e32e390879a9b305e376560b57df4` — `fix(api): mount sales fulfillment routes`
-- `e9bc87e914fd8c4cc77941f0f683a3b367f6dd7f` — `test(api): guard fulfillment route mounting`
-
-Validated by Application CI `41221818608` and Browser E2E `41221818553`.
-
-## Secure CSV bulk data V1
-
-Implemented:
-
-- `/data` Import / Export workspace
-- CSV schema version `1`
-- Items import + export
-- Customers import + export
-- Suppliers import + export
-- Opening Stock template + import only
-- mandatory dry-run before UI enables import
-- API CSV grammar + row-schema validation
-- PostgreSQL authoritative existing-data validation
-- atomic import transaction per batch
-- create-only V1 semantics
-- immutable `data_import_batches`
-- request-key idempotency
-- `data_import.completed` audit event
-- spreadsheet/formula-injection defense on exports
-- exact decimal-string Opening Stock quantity/cost semantics
-- Opening Stock position must have no prior inventory history
-- 1,000 data rows / 2 MiB limits
-- strict versioned header order
-- quoted commas/quotes/newlines supported
-- NUL and malformed quote grammar rejected
-- no automatic date/number coercion
-
-Migrations:
-
-- `20261030003000_bulk_imports.sql`
-- `20261030003100_bulk_import_validation.sql`
-- `20261030003200_bulk_import_payload_hardening.sql`
-- `20261030003300_bulk_import_payload_null_hardening.sql`
-
-Regression suites:
-
-- `021_bulk_imports.test.sql` — 32 assertions
-- `022_bulk_import_validation.test.sql` — 12 assertions
-- `023_bulk_import_payload_hardening.test.sql` — 6 assertions
-
-See `docs/BULK_DATA.md` for the canonical CSV contract.
-
-## Stable business workflows
+## Stable business modules
 
 - tenant/RLS/auth foundation
-- organization onboarding + tenant switcher
-- inventory ledger + master workflows + transfers
-- parties / addresses / GST registrations
+- organization onboarding + tenant switching
+- inventory ledger + transfers
+- customers/suppliers + addresses/tax profiles
 - seller billing profiles
-- GST tax invoices
-- general credit/debit corrections
-- return-linked credits
-- customer payments + reversals/refunds
+- GST invoices / credit notes / debit notes
+- commercial adjustments
 - partial + multi-warehouse fulfillment
-- immutable sales returns
-- Purchase Receipts / physical supplier receiving
-- operational dashboard + read-only audit viewer
-- CSV bulk import/export V1
-- Print / Save PDF for immutable financial documents
+- sales returns + return-linked credits
+- customer payments + reversals/refunds
+- supplier Purchase Receipts / GRN
+- operational dashboard
+- audit viewer
+- secure CSV import/export
+- authenticated print / Save PDF
 
-Purchase Receipt remains physical logistics only. It does not create supplier AP/payables.
+Purchase Receipt remains a physical logistics event only; supplier AP/payables are intentionally separate and not yet implemented.
 
-## Architecture invariants to preserve
+## Invariants to preserve
 
 - PostgreSQL RLS is the tenant security boundary
-- selected organization is UX state only
+- organization switcher is UX state only
 - inventory movements are append-only
 - issued financial documents are immutable
-- corrections use explicit return/reversal/credit/debit ledgers
-- exact PostgreSQL `numeric`; decimal strings across JS boundaries
-- historical legal/item/tax snapshots never depend on later master edits
-- dangerous mutations use idempotency keys
-- critical mutations append audit events
-- no service-role key in normal business API requests
-- no production credentials or real customer data in Git
-- bulk dry-run is advisory only; execution always re-validates authoritative state
-- CSV financial values never become authoritative accounting calculations
+- corrections use explicit return/reversal/refund/credit/debit ledgers
+- PostgreSQL `numeric` is monetary/quantity truth
+- JS boundaries use decimal strings
+- legal/item/tax snapshots remain historical
+- dangerous writes use idempotency keys
+- critical writes append audit events
+- normal API traffic never uses a service-role key
+- no production credentials/customer data in Git
+- bulk dry-run never replaces execution-time DB validation
 
-## Next task — resume here
+## Active phase — production hardening
 
-Extend real-stack Browser E2E in this order:
+Next sequence:
 
-1. complete remaining fulfillment quantity from a second warehouse to prove multi-warehouse completion
-2. physical return against the exact fulfillment posting
-3. return-linked credit note
-4. customer receipt + allocation reversal/refund
-5. immutable document print route
-6. dashboard + audit-log verification
+1. dynamic HTTP/security testing and header/session review
+2. representative load + concurrency tests
+3. staging environment plan + secret separation
+4. automated database backups + restore drill
+5. monitoring / error tracking / alerts
+6. privileged-account MFA policy
+7. controlled staging deployment
+8. production domain/TLS + pilot rollout after staging acceptance
 
-After critical E2E flows are green, move to production hardening:
+## Decisions requiring user opinion
 
-- secret management
-- backups + restore drill
-- monitoring/error tracking
-- privileged-account MFA
-- dependency/security scanning
-- load/concurrency tests
-- deployment
+Ask before locking any of these:
 
-Do not merge `foundation/bootstrap` to `main` without explicit authorization.
+- staging/production domain choice
+- production rollout timing
+- backup retention period
+- monitoring/alert destination
+- pilot-user rollout policy
+- paid infrastructure upgrades
+
+No decision is currently blocking dynamic security/load testing.
+
+Do **not** merge `foundation/bootstrap` into `main` without explicit user authorization.
