@@ -333,7 +333,7 @@ test('critical inventory, sales, return-credit and payment-ledger path stays con
   await expect(allocationRecord).toContainText('Reversed INR 100')
 
   // Refund the now-unallocated 100 without mutating the original payment receipt.
-  const receiptHistory = page.locator('.payment-history').filter({ has: page.getByRole('heading', { name: 'Receipt history' }) })
+  const receiptHistory = page.locator('.payment-history').filter({ has: page.getByRole('heading', { name: 'Recent customer receipts' }) })
   const receiptRecord = receiptHistory.locator('article').filter({ hasText: `E2E-PAY-${suffix}` }).first()
   await receiptRecord.getByRole('button', { name: 'Refund' }).click()
   correctionForm = page.locator('form.payment-form').filter({ has: page.getByRole('heading', { name: 'Refund receipt' }) })
