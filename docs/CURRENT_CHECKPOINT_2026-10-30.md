@@ -2,7 +2,7 @@
 
 ## Stable checkpoint
 
-**V1 core business workflows, real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. Staging architecture is now finalized and scaffolded; live deployment is blocked only on external domain/account setup.**
+**V1 core business workflows, real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. Staging architecture is finalized and scaffolded. The exact staging hostname is now fixed as `staging.buildtechsolutions.com`.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
@@ -11,39 +11,24 @@ Main branch: foundation work is **not merged**.
 ## Validation gates
 
 - Database CI: **GREEN** — run `40987922831`
-  - migrations through `20261030003300_bulk_import_payload_null_hardening.sql`
-  - DB lint passed
-  - pgTAP suites `001–023` passed
 - Application CI: **GREEN** — run `41356175796`
-  - strict TypeScript
-  - API tests `55/55`
-  - web tests `12/12`
-  - contract tests `72/72`
-  - Worker + React production builds passed
 - Browser E2E: **GREEN** — run `41355614560`
-  - real Supabase Auth/PostgREST/Postgres
-  - real Worker + React app
-  - Chromium
-  - complete V1 business critical path
 - Security CI: **GREEN** — run `41356392873`
-  - high/critical npm dependency audit passed
-  - CodeQL JavaScript/TypeScript passed
 - Performance CI: **GREEN** — run `41356392913`
-  - k6 authenticated tenant reads passed
-  - concurrent stock-contention invariant passed
+- migrations through `20261030003300_bulk_import_payload_null_hardening.sql`
+- pgTAP suites `001–023`
 
 ## Finalized staging architecture
 
-**User selected Option B. Option A (`*.workers.dev` as the planned staging URL) is rejected.**
+**Option B is final.**
 
-Staging topology:
-
-- custom hostname such as `staging.example.com`
+- root domain: `buildtechsolutions.com`
+- staging hostname: `staging.buildtechsolutions.com`
 - separate Cloudflare Worker: `inventory-mgt-staging`
-- `workers.dev` disabled for this staging Worker
-- React/Vite SPA + Hono API served from the same staging origin
-- `/v1/*` and `/health` route Worker-first
-- SPA/static assets served by Cloudflare Workers Static Assets
+- `workers.dev` disabled
+- same-origin React/Vite SPA + Hono API
+- `/v1/*` and `/health` Worker-first
+- Cloudflare Workers Static Assets for SPA assets
 - completely separate Supabase staging project/database
 - no production credentials or customer data
 
@@ -53,17 +38,17 @@ Implemented files:
 - `.github/workflows/staging-deploy.yml`
 - `docs/STAGING_DEPLOYMENT.md`
 
-The staging workflow is manual-only, environment-scoped, requires exact `DEPLOY-STAGING` confirmation, runs tests/build validation, dry-runs migrations, applies versioned migrations, deploys Worker + SPA, and executes HTTP/security smoke checks.
+The deploy workflow is manual-only and requires exact `DEPLOY-STAGING` confirmation. It also rejects any `STAGING_DOMAIN` other than `staging.buildtechsolutions.com`.
 
-## External inputs required before first staging deployment
+## External inputs required before first live staging deployment
 
-1. actual owned domain / Cloudflare zone
-2. chosen staging hostname
-3. dedicated Supabase staging project
-4. GitHub Actions environment named `staging`
-5. staging variables/secrets documented in `docs/STAGING_DEPLOYMENT.md`
+1. verify `buildtechsolutions.com` is in the intended Cloudflare account/zone
+2. ensure `staging.buildtechsolutions.com` is available for the Worker custom domain
+3. create the dedicated Supabase staging project
+4. create/configure GitHub Actions environment `staging`
+5. provide the staging variables/secrets from `docs/STAGING_DEPLOYMENT.md`
 
-No live staging resources have been created from this repository yet.
+No production credentials/customer data are committed.
 
 ## HTTP hardening already present
 
@@ -77,24 +62,12 @@ All `/v1/*` API responses return:
 
 ## Performance regression baseline
 
-Local real-stack k6 gate:
-
-- virtual users: `5`
-- duration: `20s`
-- requests: `1,338`
-- failed requests: `0`
-- checks: `4,014 / 4,014` passed
-- p95 request duration: `13.61 ms`
-- max request duration: `60.53 ms`
-
-Concurrent stock contention probe:
-
-- seeded exactly `1` unit
-- fired two transfers concurrently
-- exactly one `201` and one `409`
-- source ending stock `0`
-- aggregate destination stock `1`
-- negative stock `0`
+- 5 VUs / 20 s
+- 1,338 requests
+- 0 failures
+- 4,014 / 4,014 checks passed
+- p95 13.61 ms
+- concurrent 1-unit stock contention produced exactly one success and one conflict
 
 This is a regression baseline, not a production-capacity claim.
 
@@ -116,41 +89,35 @@ This is a regression baseline, not a production-capacity claim.
 - secure CSV import/export
 - authenticated print / Save PDF
 
-Purchase Receipt remains a physical logistics event only; supplier AP/payables are intentionally separate and not yet implemented.
-
 ## Invariants to preserve
 
 - PostgreSQL RLS is the tenant security boundary
-- organization switcher is UX state only
 - inventory movements are append-only
 - issued financial documents are immutable
-- corrections use explicit return/reversal/refund/credit/debit ledgers
+- corrections use explicit ledgers
 - PostgreSQL `numeric` is monetary/quantity truth
-- JS boundaries use decimal strings
-- legal/item/tax snapshots remain historical
 - dangerous writes use idempotency keys
 - critical writes append audit events
 - normal API traffic never uses a service-role key
-- authenticated API responses are non-cacheable
 - no production credentials/customer data in Git
-- bulk dry-run never replaces execution-time DB validation
-- staging and production never share a Supabase database or deployment secrets
+- staging and production never share Supabase databases or deployment secrets
+- staging deployment targets exactly `staging.buildtechsolutions.com` unless the user explicitly changes the domain decision
 
 ## Active phase — staging deployment
 
 Next sequence:
 
-1. obtain/confirm the real domain and Cloudflare zone
-2. create the separate Supabase staging project
-3. configure the GitHub `staging` environment values/secrets
+1. verify/control the `buildtechsolutions.com` Cloudflare zone
+2. create separate Supabase staging project
+3. configure GitHub `staging` environment values/secrets
 4. run `Deploy Staging` from `foundation/bootstrap`
-5. confirm live smoke checks
-6. run real hosted Playwright E2E against staging
+5. confirm smoke checks
+6. run hosted Playwright E2E against `https://staging.buildtechsolutions.com`
 7. run OWASP ZAP / HTTP security scan
-8. automated database backup + restore drill
+8. automated DB backup + restore drill
 9. monitoring / error tracking / alerts
 10. privileged-account MFA policy
-11. production domain/TLS + controlled pilot only after staging acceptance
+11. production rollout only after staging acceptance
 
 ## Resume instruction
 
@@ -160,6 +127,6 @@ Read:
 - `docs/STAGING_DEPLOYMENT.md`
 - this checkpoint
 
-Then continue from external staging setup. Do not revisit the Option A/Option B decision unless the user explicitly changes it.
+Then continue from external staging infrastructure. Do not revisit the Option A/Option B or staging-hostname decision unless the user explicitly changes it.
 
 **Do not merge `foundation/bootstrap` into `main` without explicit user authorization.**
