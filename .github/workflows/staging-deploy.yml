@@ -23,6 +23,7 @@ jobs:
     environment: staging
     env:
       DEPLOY_CONFIRM: ${{ inputs.confirm }}
+      EXPECTED_STAGING_DOMAIN: staging.buildtechsolutions.com
       STAGING_DOMAIN: ${{ vars.STAGING_DOMAIN }}
       STAGING_SUPABASE_URL: ${{ vars.STAGING_SUPABASE_URL }}
       STAGING_SUPABASE_DB_URL: ${{ secrets.STAGING_SUPABASE_DB_URL }}
@@ -66,7 +67,12 @@ jobs:
           fi
 
           if [[ "$STAGING_DOMAIN" == http://* || "$STAGING_DOMAIN" == https://* || "$STAGING_DOMAIN" == */* ]]; then
-            echo "::error::STAGING_DOMAIN must be a hostname only, for example staging.example.com"
+            echo "::error::STAGING_DOMAIN must be a hostname only"
+            exit 1
+          fi
+
+          if [ "$STAGING_DOMAIN" != "$EXPECTED_STAGING_DOMAIN" ]; then
+            echo "::error::STAGING_DOMAIN must be exactly $EXPECTED_STAGING_DOMAIN; refusing to deploy to another hostname"
             exit 1
           fi
 
