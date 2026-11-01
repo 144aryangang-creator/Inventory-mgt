@@ -2,7 +2,7 @@
 
 ## Stable checkpoint
 
-**V1 core business workflows, real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. Staging architecture is finalized and scaffolded. The exact staging hostname is now fixed as `staging.buildtechsolutions.com`.**
+**V1 core business workflows, real-stack browser critical path, security scanning, HTTP hardening, and the first load/concurrency regression gate are green. The dedicated hosted Supabase staging database now exists and is migrated through `034`; live Cloudflare/GitHub deployment configuration is the remaining external staging blocker.**
 
 Repository: `144aryangang-creator/Inventory-mgt`  
 Working branch: `foundation/bootstrap`  
@@ -10,13 +10,14 @@ Main branch: foundation work is **not merged**.
 
 ## Validation gates
 
-- Database CI: **GREEN** — run `40987922831`
-- Application CI: **GREEN** — run `41356175796`
-- Browser E2E: **GREEN** — run `41355614560`
-- Security CI: **GREEN** — run `41356392873`
-- Performance CI: **GREEN** — run `41356392913`
-- migrations through `20261030003300_bulk_import_payload_null_hardening.sql`
-- pgTAP suites `001–023`
+- Database CI: prior stable run **GREEN** — `40987922831`
+- Application CI: **GREEN** — `41356175796`
+- Browser E2E: **GREEN** — `41355614560`
+- Security CI: **GREEN** — `41356392873`
+- Performance CI: **GREEN** — `41356392913`
+- New CI wave for migration `034`: triggered; do not call `034` CI-green until it completes successfully
+- migrations now through `20261030003400_revoke_anon_rpc_execution.sql`
+- pgTAP suites before `034`: `001–023`
 
 ## Finalized staging architecture
 
@@ -29,26 +30,60 @@ Main branch: foundation work is **not merged**.
 - same-origin React/Vite SPA + Hono API
 - `/v1/*` and `/health` Worker-first
 - Cloudflare Workers Static Assets for SPA assets
-- completely separate Supabase staging project/database
+- dedicated Supabase staging project/database
 - no production credentials or customer data
 
-Implemented files:
+Implemented deployment files:
 
 - `apps/api/wrangler.staging.jsonc`
 - `.github/workflows/staging-deploy.yml`
 - `docs/STAGING_DEPLOYMENT.md`
 
-The deploy workflow is manual-only and requires exact `DEPLOY-STAGING` confirmation. It also rejects any `STAGING_DOMAIN` other than `staging.buildtechsolutions.com`.
+The deploy workflow is manual-only, requires exact `DEPLOY-STAGING` confirmation, and rejects any `STAGING_DOMAIN` other than `staging.buildtechsolutions.com`.
 
-## External inputs required before first live staging deployment
+## Hosted Supabase staging — CREATED
 
-1. verify `buildtechsolutions.com` is in the intended Cloudflare account/zone
-2. ensure `staging.buildtechsolutions.com` is available for the Worker custom domain
-3. create the dedicated Supabase staging project
-4. create/configure GitHub Actions environment `staging`
-5. provide the staging variables/secrets from `docs/STAGING_DEPLOYMENT.md`
+Supabase organization: `buildtechsolutions.com`  
+Staging project name: `inventorymgt`  
+Project ref: `gqmxivopdwmqlxjvyhia`  
+Region: `eu-west-2`
 
-No production credentials/customer data are committed.
+The project was empty before staging setup and is now dedicated to staging. Production must use a different future Supabase project.
+
+### Database state
+
+- repository migrations `001–034` applied
+- remote migration history reconciled to the exact Git versions/names
+- every application table in `public` has RLS enabled
+- no production data was copied into staging
+- no service-role key is used for ordinary application traffic
+
+### Hosted security finding and fix
+
+Supabase's hosted advisor exposed a role-default issue not visible in the local stack: `anon` had direct `EXECUTE` grants on public `SECURITY DEFINER` RPCs.
+
+Migration `20261030003400_revoke_anon_rpc_execution.sql` now:
+
+- revokes `EXECUTE` on all public-schema functions from `anon`
+- revokes default future function execution from `anon`
+- preserves the explicit authenticated RPC grants required by the application
+
+Verification after migration `034`:
+
+- anonymous-executable public `SECURITY DEFINER` functions: **0**
+- authenticated-executable `SECURITY DEFINER` functions: **45**, intentional application RPC surface guarded by `auth.uid()` plus tenant/role checks
+- public application tables with RLS disabled: **0**
+
+Supabase security advisor still reports two informational `RLS enabled but no policy` findings for:
+
+- `financial_document_sequences`
+- `purchase_receipt_sequences`
+
+This is intentional: clients receive no direct table privileges; sequence mutation occurs only through controlled RPCs. Do not add permissive policies simply to silence the advisor.
+
+### Hosted performance advisor
+
+The fresh/empty staging database reports many informational unindexed-foreign-key findings and unused indexes. Do **not** add or remove indexes mechanically. Re-evaluate after hosted E2E and representative load/query-plan evidence; premature indexing would add write/storage overhead without workload proof.
 
 ## HTTP hardening already present
 
@@ -69,7 +104,7 @@ All `/v1/*` API responses return:
 - p95 13.61 ms
 - concurrent 1-unit stock contention produced exactly one success and one conflict
 
-This is a regression baseline, not a production-capacity claim.
+This is a local real-stack regression baseline, not a production-capacity claim.
 
 ## Stable business modules
 
@@ -92,6 +127,8 @@ This is a regression baseline, not a production-capacity claim.
 ## Invariants to preserve
 
 - PostgreSQL RLS is the tenant security boundary
+- anonymous users cannot execute application RPCs
+- intended signed-in RPCs perform explicit user + organization/role authorization
 - inventory movements are append-only
 - issued financial documents are immutable
 - corrections use explicit ledgers
@@ -103,21 +140,23 @@ This is a regression baseline, not a production-capacity claim.
 - staging and production never share Supabase databases or deployment secrets
 - staging deployment targets exactly `staging.buildtechsolutions.com` unless the user explicitly changes the domain decision
 
-## Active phase — staging deployment
+## Active phase — live staging deployment
 
 Next sequence:
 
-1. verify/control the `buildtechsolutions.com` Cloudflare zone
-2. create separate Supabase staging project
-3. configure GitHub `staging` environment values/secrets
-4. run `Deploy Staging` from `foundation/bootstrap`
-5. confirm smoke checks
-6. run hosted Playwright E2E against `https://staging.buildtechsolutions.com`
-7. run OWASP ZAP / HTTP security scan
-8. automated DB backup + restore drill
-9. monitoring / error tracking / alerts
-10. privileged-account MFA policy
-11. production rollout only after staging acceptance
+1. wait for/verify the migration `034` GitHub CI wave is green
+2. verify/control the `buildtechsolutions.com` Cloudflare zone
+3. bind `staging.buildtechsolutions.com` to the staging Worker
+4. configure GitHub Actions environment `staging` with staging Supabase/Cloudflare values and secrets
+5. configure Supabase Auth Site URL / allowed redirects for `https://staging.buildtechsolutions.com`
+6. run `Deploy Staging` from `foundation/bootstrap`
+7. confirm live smoke checks
+8. run hosted Playwright E2E against `https://staging.buildtechsolutions.com`
+9. run OWASP ZAP / HTTP security scan
+10. automated DB backup + restore drill
+11. monitoring / error tracking / alerts
+12. privileged-account MFA policy
+13. production rollout only after staging acceptance
 
 ## Resume instruction
 
@@ -127,6 +166,6 @@ Read:
 - `docs/STAGING_DEPLOYMENT.md`
 - this checkpoint
 
-Then continue from external staging infrastructure. Do not revisit the Option A/Option B or staging-hostname decision unless the user explicitly changes it.
+Then continue from Cloudflare/GitHub environment setup. Do not recreate the Supabase staging project and do not revisit the Option A/Option B or staging-hostname decision unless the user explicitly changes it.
 
 **Do not merge `foundation/bootstrap` into `main` without explicit user authorization.**
