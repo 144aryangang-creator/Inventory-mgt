@@ -1,14 +1,15 @@
 # Inventory Management + Invoicing SaaS
 
-Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-security and business-invariant boundary; React and the Worker API remain tenant-scoped clients of that model.
+Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-security and business-invariant boundary; React and the Cloudflare Worker API remain tenant-scoped clients of that model.
 
-> **Resume rule:** Read this README and `docs/CURRENT_CHECKPOINT_2026-10-30.md` before continuing. Update them after major milestones/security changes and before ending substantial work.
+> **Resume rule:** Read this README, `docs/CURRENT_CHECKPOINT_2026-10-30.md`, and `docs/STAGING_DEPLOYMENT.md` before continuing. Update the checkpoint/README after major milestones or security/architecture changes and before ending substantial work.
 
-## Current checkpoint
+## Current checkpoint — 2026-11-02
 
 - Repository: `144aryangang-creator/Inventory-mgt`
 - Working branch: `foundation/bootstrap`
 - `main`: foundation work is **not merged**
+- V1 core business workflows: implemented
 - Database CI: **GREEN** — run `40987922831`
 - Application CI: **GREEN** — run `41356175796`
 - Browser E2E: **GREEN** — run `41355614560`
@@ -19,7 +20,35 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 - Production deployment: **not started**
 - Production credentials/customer data: **not configured or committed**
 
-## V1 business capabilities implemented
+## Staging decision — FINAL
+
+**Option B is selected.**
+
+Staging will use:
+
+- a custom hostname such as `staging.example.com`
+- a separate Cloudflare Worker: `inventory-mgt-staging`
+- a completely separate Supabase staging project/database
+- same-origin React SPA + Hono API on the staging hostname
+- Cloudflare `workers.dev` disabled for the staging Worker
+- strict separation from all future production credentials/data
+
+Implemented staging scaffold:
+
+- `apps/api/wrangler.staging.jsonc`
+- `.github/workflows/staging-deploy.yml`
+- `docs/STAGING_DEPLOYMENT.md`
+
+The deploy workflow is manual-only and requires the exact confirmation `DEPLOY-STAGING`. It runs typecheck/tests, builds the staging SPA, dry-runs the Worker, dry-runs and applies versioned database migrations, deploys to the custom domain, then performs HTTP/security smoke checks.
+
+**External setup still required before the first live staging deploy:**
+
+1. choose/own the real domain and place its DNS in the intended Cloudflare account
+2. create the dedicated Supabase staging project
+3. create GitHub environment `staging`
+4. add the staging domain/Supabase variables and Cloudflare/Supabase deployment secrets documented in `docs/STAGING_DEPLOYMENT.md`
+
+## V1 implemented capabilities
 
 ### Platform + security
 
@@ -28,12 +57,12 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 - PostgreSQL RLS tenant isolation
 - owner/admin/staff/viewer roles
 - immutable audit events
-- idempotent mutation patterns
+- idempotent dangerous mutations
 - no service-role key for normal business routes
 - exact decimal strings across JS boundaries
 - PostgreSQL `numeric` for money/tax/quantity truth
 - authenticated `/v1/*` responses use `Cache-Control: no-store`
-- request IDs + `nosniff` + frame/referrer protections
+- request IDs + secure HTTP headers
 
 ### Inventory
 
@@ -41,180 +70,63 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 - append-only inventory movement ledger
 - transactional balances
 - negative-stock protection
-- item/warehouse archive safeguards
+- archive safeguards
 - atomic warehouse transfers
 - Inventory web workspace
 
-### Customers / suppliers / tax profiles
+### Parties / tax / billing profiles
 
-- reusable party master
-- customer/supplier roles
-- multiple addresses
-- multiple tax registrations
+- reusable customer/supplier master
+- multiple addresses and tax registrations
 - GSTIN structural + state-code validation
 - seller/legal billing profiles
 - archive lifecycle instead of destructive deletes
 
 ### GST financial documents
 
-- tax invoices
-- credit notes
-- debit notes
+- tax invoices, credit notes, debit notes
 - financial-year/series numbering
 - PostgreSQL-authoritative line/tax arithmetic
 - CGST / SGST / UTGST / IGST / CESS
 - immutable issued/cancelled documents
 - immutable seller/buyer/address/item/tax snapshots
-- commercial credit/debit adjustments
-- return-linked credit notes
-- shared credit ceiling per original invoice line
+- commercial adjustments + return-linked credits
 - authenticated A4 print route + browser Print / Save PDF
 
-### Fulfillment + returns
+### Fulfillment / returns
 
-- partial fulfillment
-- multiple immutable fulfillment postings per invoice
-- one warehouse per posting
-- multi-warehouse completion
-- row-lock protection against over-fulfillment
-- derived status: `not_applicable`, `unfulfilled`, `partial`, `fulfilled`
-- physical sales returns tied to exact fulfillment
-- returns restore the exact shipping warehouse
-- physical-return and financial-credit ledgers remain separate
+- partial and multi-warehouse fulfillment
+- immutable fulfillment postings
+- row-lock over-fulfillment protection
+- exact fulfillment-linked physical returns
+- stock restored to the exact shipping warehouse
+- physical return and financial credit kept as separate ledgers
 
 ### Customer payments
 
 - immutable receipts + allocations
-- atomic receipt + invoice allocation
+- partial reversals and refunds
 - over-allocation/customer/currency protection
-- partial allocation reversals
-- partial receipt refunds
-- reversal-aware invoice balance/status
-- correction UI
+- reversal-aware invoice balances/status
 
 ### Supplier receiving
 
 - immutable Purchase Receipt / GRN ledger
-- one receiving warehouse per receipt
-- multiple receipt lines
+- atomic multi-line stock posting
 - exact quantity + unit cost
 - immutable supplier/item snapshots
-- tenant-scoped receipt → inventory-movement linkage
-- atomic multi-line stock posting
-- transactional per-org GRN numbering
-- idempotency + audit + full rollback
-- `/purchases` workspace
-- deliberately **no supplier AP/payable side effect**
+- transactional numbering + idempotency + audit
+- intentionally no supplier AP/payable side effect yet
 
-### Operational visibility
+### Operations + bulk data
 
 - PostgreSQL operational dashboard
-- currency-separated financial KPIs
-- inventory KPIs without invalid cross-UOM totals
-- purchase-receiving counts
-- fulfillment status counts
-- audit/activity counts
-- read-only audit-log API + `/audit`
-
-### Secure CSV bulk data V1
-
-- `/data` Import / Export workspace
-- versioned CSV schema (`1`)
-- Items / Customers / Suppliers import-export
-- Opening Stock import
-- mandatory UI dry-run
-- execution-time PostgreSQL re-validation
-- atomic import batch
-- create-only V1 semantics
-- immutable import batches
-- request-key idempotency + audit
-- spreadsheet/formula-injection defense
-- strict headers + quoted comma/quote/newline support
-- malformed/NUL rejection
-- 1,000 data rows / 2 MiB limits
-
-See `docs/BULK_DATA.md`.
-
-## Real-stack Browser E2E — V1 critical path closed
-
-Playwright runs against:
-
-`Chromium → React/Vite → Cloudflare Worker/Wrangler → Supabase Auth/PostgREST → PostgreSQL/RLS`
-
-Run `41355614560` is **GREEN** and proves through the real browser:
-
-1. login + first-organization onboarding
-2. Item CSV dry-run/import
-3. two warehouses
-4. Supplier CSV dry-run/import
-5. supplier Purchase Receipts into both warehouses
-6. inventory balance verification
-7. seller/legal profile
-8. customer + billing address
-9. stock-backed GST invoice draft + PostgreSQL tax calculation
-10. immutable invoice issue
-11. partial fulfillment from warehouse 1
-12. remaining fulfillment from warehouse 2
-13. two immutable fulfillment postings + `fulfilled` status
-14. physical return against exact warehouse-2 posting
-15. warehouse-2 stock restoration
-16. return-linked GST credit note
-17. partial customer receipt
-18. partial allocation reversal
-19. partial receipt refund
-20. authenticated issued-document print output
-21. operational dashboard rendering
-22. immutable `financial_document.issued` audit-event visibility
-
-## Security automation
-
-Latest Security CI run `41356392873` is **GREEN**:
-
-- `npm audit --audit-level=high`: passed
-- CodeQL JavaScript/TypeScript: passed
-- production build under CodeQL: passed
-
-Repository automation:
-
-- `.github/workflows/security-ci.yml`
-  - pinned CodeQL Action `v4.39.1`
-  - dependency audit
-  - weekly scheduled scan
-- `.github/dependabot.yml`
-  - weekly npm updates
-  - weekly GitHub Actions updates
-  - grouped npm minor/patch updates
-
-## Performance + concurrency regression gate
-
-Performance CI run `41356392913` is **GREEN**.
-
-Authenticated read baseline on the local real stack:
-
-- 5 VUs for 20 seconds
-- 1,338 HTTP requests
-- 0 request failures
-- 4,014 / 4,014 checks passed
-- p95: 13.61 ms
-- max: 60.53 ms
-- thresholds: failure rate `<1%`, p95 `<1.5s`
-
-Every protected read also verified:
-
-- HTTP `200`
-- `Cache-Control: no-store`
-- request ID present
-
-Concurrent stock-contention probe:
-
-- seed exactly 1 unit
-- fire 2 outbound transfers concurrently
-- require exactly one `201` + one `409`
-- source ending stock = 0
-- aggregate destination stock = 1
-- no negative stock
-
-These numbers are **regression-test results, not production capacity claims**.
+- currency-safe and UOM-safe KPIs
+- read-only audit viewer
+- secure CSV Items / Customers / Suppliers / Opening Stock import-export
+- mandatory dry-run + execution-time DB revalidation
+- atomic create-only V1 import batches
+- formula-injection and malformed-file defenses
 
 ## Architecture
 
@@ -232,114 +144,77 @@ These numbers are **regression-test results, not production capacity claims**.
 | Payments | Immutable receipt/allocation/reversal/refund ledgers |
 | Fulfillment | Multiple immutable one-warehouse postings |
 | Returns | Exact fulfillment-linked physical return ledger |
-| Receiving | Immutable physical Purchase Receipt; AP separate |
+| Receiving | Immutable Purchase Receipt; AP separate |
 | Bulk data | Versioned, dry-run-first, server-authoritative CSV |
 | Reporting | DB-derived, currency/UOM safe |
 | Document output | Authenticated print route |
-| CI | GitHub Actions |
+| CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
+| Staging | Custom Cloudflare domain + isolated Supabase project |
 
 ## Non-negotiable invariants
 
 1. Every tenant-owned row belongs to an organization.
 2. PostgreSQL RLS is the tenant authorization boundary.
 3. Browser-selected organization is UX state only.
-4. `organization_id` cannot be silently reassigned.
-5. Inventory movements are append-only; corrections use reversing movements.
-6. Stock posting is transactional and locks capacity/balance rows where required.
-7. Negative stock is blocked unless explicit future org policy allows it.
-8. Dangerous mutations use idempotency keys.
-9. Money/tax/quantity truth never uses JS floating point.
-10. Issued financial documents/lines/taxes are immutable.
-11. Corrections use explicit credit/debit/cancel/return/reversal/refund workflows.
-12. Critical mutations append audit events.
-13. Secrets and production customer data never enter Git.
-14. Schema changes use unique version-controlled migrations.
-15. Historical docs never depend on later master-data changes.
-16. Clients cannot supply authoritative legal/item snapshots or tax totals.
-17. Receipt/allocation/reversal/refund rows are immutable.
-18. Payment allocation must match invoice customer/currency and cannot over-allocate.
-19. Refund/reversal cannot exceed remaining reversible value.
-20. Items/warehouses with non-zero stock cannot be archived.
-21. Aggregate fulfillment cannot exceed original line quantity.
-22. Returns reference exact fulfillments and restore that warehouse.
-23. Aggregate returns cannot exceed fulfillment quantity.
-24. Physical returns and financial credits are separate ledgers.
-25. Commercial + return-linked credits share one active taxable-value ceiling.
-26. Purchase Receipts are physical logistics only; they do not create AP.
-27. Purchase Receipt rows and inventory links are immutable.
-28. Dashboard totals are never summed across currencies.
-29. Inventory reporting never sums unrelated UOM/item quantities.
-30. Audit viewer is read-only and governed by database RBAC/RLS.
-31. Bulk dry-run is advisory; execution re-validates DB state.
-32. CSV values never become authoritative accounting calculations.
-33. Authenticated `/v1/*` responses are non-cacheable.
-34. Single-unit concurrent stock contention must never produce two successful outbound writers.
+4. Inventory movements are append-only; corrections use reversing movements.
+5. Stock posting is transactional and negative stock is blocked by default.
+6. Dangerous mutations use idempotency keys.
+7. Money/tax/quantity truth never uses JS floating point.
+8. Issued financial documents/lines/taxes are immutable.
+9. Corrections use explicit credit/debit/cancel/return/reversal/refund workflows.
+10. Critical mutations append audit events.
+11. Secrets and production customer data never enter Git.
+12. Schema changes use unique version-controlled migrations.
+13. Historical documents never depend on later master-data changes.
+14. Clients cannot supply authoritative legal/item snapshots or tax totals.
+15. Payment allocation must match invoice customer/currency and cannot over-allocate.
+16. Items/warehouses with non-zero stock cannot be archived.
+17. Aggregate fulfillment cannot exceed original line quantity.
+18. Returns reference exact fulfillments and cannot exceed fulfilled quantity.
+19. Physical returns and financial credits remain separate ledgers.
+20. Purchase Receipts are physical logistics only; they do not create AP.
+21. Dashboard totals are never summed across currencies or unrelated UOMs.
+22. Bulk dry-run is advisory; execution re-validates DB state.
+23. Authenticated `/v1/*` responses are non-cacheable.
+24. Concurrent stock contention must never permit double spending of the same stock.
+25. Staging and production must never share a Supabase database or secrets.
 
-## Database state
+## Real-stack validation already proven
 
-- migrations: `001` foundation through `033` bulk import payload null hardening
-- pgTAP: suites `001–023` green
-- latest DB gate: run `40987922831`
-- migration versions must never be reused
+The browser critical path runs through:
 
-## API domains
+`Chromium → React/Vite → Cloudflare Worker/Wrangler → Supabase Auth/PostgREST → PostgreSQL/RLS`
 
-Normal requests use verified user JWTs with a user-scoped Supabase client.
+It covers onboarding, CSV import, receiving, inventory, billing profile, GST invoicing, multi-warehouse fulfillment, return + credit, receipt + reversal/refund, print output, dashboard and audit visibility.
 
-Implemented:
+Performance baseline (`41356392913`):
 
-- organizations
-- parties/profiles
-- seller billing profiles
-- inventory
-- financial documents
-- financial adjustments
-- fulfillment / returns / return credits
-- customer payments / reversals / refunds
-- purchase receipts
-- dashboard + audit
-- bulk import/export
+- 5 VUs / 20 s
+- 1,338 HTTP requests
+- 0 failures
+- 4,014 / 4,014 checks passed
+- p95 13.61 ms
+- concurrent 1-unit stock contention produced exactly one success and one conflict
 
-## Web routes
+These are regression results, **not production capacity claims**.
 
-- `/login`
-- `/` — dashboard
-- `/customers`
-- `/suppliers`
-- `/inventory`
-- `/purchases`
-- `/invoices`
-- `/payments`
-- `/audit`
-- `/data`
-- `/settings`
-- `/financial-documents/:documentId/print?organizationId=...`
+## Remaining production-readiness sequence
 
-## CI gates
+1. complete external setup for the custom staging domain and isolated Supabase project
+2. run the guarded `Deploy Staging` workflow
+3. run real hosted Playwright E2E against staging
+4. run OWASP ZAP / HTTP security scan against staging
+5. perform automated-backup + restore drill
+6. configure monitoring, error tracking and alerts
+7. define privileged-account MFA policy and run production security review
+8. only then plan production domain/TLS + controlled pilot
+9. later: trusted GST registration verification integration
+10. later: `.xlsx` import/export after CSV/parser-license stability review
+11. later accounting module: Supplier Invoice / Accounts Payable linked to Purchase Receipts
 
-| Gate | Latest verified run | Status |
-|---|---:|---|
-| Database CI | `40987922831` | GREEN |
-| Application CI | `41356175796` | GREEN |
-| Browser E2E | `41355614560` | GREEN |
-| Security CI | `41356392873` | GREEN |
-| Performance CI | `41356392913` | GREEN |
+## Resume here
 
-## Remaining production-readiness work
+**Next blocker is external staging infrastructure:** the actual domain/Cloudflare zone plus a dedicated Supabase staging project and GitHub `staging` environment values. Once those exist, execute `.github/workflows/staging-deploy.yml`, then move immediately to hosted E2E + OWASP ZAP.
 
-High priority:
-
-1. Dedicated staging environment + environment/secret separation.
-2. Real staging OWASP ZAP / HTTP security scan.
-3. Automated backups + restore drill.
-4. Monitoring, error tracking and operational alerts.
-5. Privileged-account MFA policy + production security review.
-6. Production deployment/domain/TLS rollout.
-7. Trusted GST registration verification integration.
-8. `.xlsx` import/export only after CSV stability/parser-license review.
-9. Supplier Invoice / Accounts Payable remains a later accounting module linked to Purchase Receipts.
-
-## Next engineering task — resume here
-
-**Staging deployment. Recommended: a separate Supabase staging project and a separate Cloudflare staging Worker/environment. Ask the user whether to start with a free/near-free Cloudflare `*.workers.dev` staging URL or use a custom staging subdomain now. After staging exists, run real staging E2E + OWASP ZAP before production planning.**
+**Do not merge `foundation/bootstrap` into `main` without explicit user authorization.**
