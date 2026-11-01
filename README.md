@@ -24,9 +24,14 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 
 **Option B is selected.**
 
+Staging hostname is fixed as:
+
+`staging.buildtechsolutions.com`
+
 Staging will use:
 
-- a custom hostname such as `staging.example.com`
+- root domain: `buildtechsolutions.com`
+- staging hostname: `staging.buildtechsolutions.com`
 - a separate Cloudflare Worker: `inventory-mgt-staging`
 - a completely separate Supabase staging project/database
 - same-origin React SPA + Hono API on the staging hostname
@@ -39,14 +44,15 @@ Implemented staging scaffold:
 - `.github/workflows/staging-deploy.yml`
 - `docs/STAGING_DEPLOYMENT.md`
 
-The deploy workflow is manual-only and requires the exact confirmation `DEPLOY-STAGING`. It runs typecheck/tests, builds the staging SPA, dry-runs the Worker, dry-runs and applies versioned database migrations, deploys to the custom domain, then performs HTTP/security smoke checks.
+The deploy workflow is manual-only and requires the exact confirmation `DEPLOY-STAGING`. It also refuses to deploy unless `STAGING_DOMAIN` is exactly `staging.buildtechsolutions.com`. It runs typecheck/tests, builds the staging SPA, dry-runs the Worker, dry-runs and applies versioned database migrations, deploys to the custom domain, then performs HTTP/security smoke checks.
 
 **External setup still required before the first live staging deploy:**
 
-1. choose/own the real domain and place its DNS in the intended Cloudflare account
-2. create the dedicated Supabase staging project
-3. create GitHub environment `staging`
-4. add the staging domain/Supabase variables and Cloudflare/Supabase deployment secrets documented in `docs/STAGING_DEPLOYMENT.md`
+1. confirm `buildtechsolutions.com` is owned by the user and that its DNS is managed in the Cloudflare account intended for this project
+2. ensure `staging.buildtechsolutions.com` is available for the Worker custom domain
+3. create the dedicated Supabase staging project
+4. create GitHub environment `staging`
+5. add the staging Supabase variables and Cloudflare/Supabase deployment secrets documented in `docs/STAGING_DEPLOYMENT.md`
 
 ## V1 implemented capabilities
 
@@ -150,7 +156,7 @@ The deploy workflow is manual-only and requires the exact confirmation `DEPLOY-S
 | Document output | Authenticated print route |
 | CI/CD | GitHub Actions |
 | Node baseline | 24.22.2 LTS |
-| Staging | Custom Cloudflare domain + isolated Supabase project |
+| Staging | `staging.buildtechsolutions.com` + isolated Supabase project |
 
 ## Non-negotiable invariants
 
@@ -179,6 +185,7 @@ The deploy workflow is manual-only and requires the exact confirmation `DEPLOY-S
 23. Authenticated `/v1/*` responses are non-cacheable.
 24. Concurrent stock contention must never permit double spending of the same stock.
 25. Staging and production must never share a Supabase database or secrets.
+26. Staging deployment must target exactly `staging.buildtechsolutions.com` unless the user explicitly changes the domain decision.
 
 ## Real-stack validation already proven
 
@@ -201,20 +208,22 @@ These are regression results, **not production capacity claims**.
 
 ## Remaining production-readiness sequence
 
-1. complete external setup for the custom staging domain and isolated Supabase project
-2. run the guarded `Deploy Staging` workflow
-3. run real hosted Playwright E2E against staging
-4. run OWASP ZAP / HTTP security scan against staging
-5. perform automated-backup + restore drill
-6. configure monitoring, error tracking and alerts
-7. define privileged-account MFA policy and run production security review
-8. only then plan production domain/TLS + controlled pilot
-9. later: trusted GST registration verification integration
-10. later: `.xlsx` import/export after CSV/parser-license stability review
-11. later accounting module: Supplier Invoice / Accounts Payable linked to Purchase Receipts
+1. verify/control the `buildtechsolutions.com` Cloudflare zone and reserve `staging.buildtechsolutions.com`
+2. create the separate Supabase staging project
+3. configure the GitHub `staging` environment values/secrets
+4. run the guarded `Deploy Staging` workflow
+5. run real hosted Playwright E2E against staging
+6. run OWASP ZAP / HTTP security scan against staging
+7. perform automated-backup + restore drill
+8. configure monitoring, error tracking and alerts
+9. define privileged-account MFA policy and run production security review
+10. only then plan production domain/TLS + controlled pilot
+11. later: trusted GST registration verification integration
+12. later: `.xlsx` import/export after CSV/parser-license stability review
+13. later accounting module: Supplier Invoice / Accounts Payable linked to Purchase Receipts
 
 ## Resume here
 
-**Next blocker is external staging infrastructure:** the actual domain/Cloudflare zone plus a dedicated Supabase staging project and GitHub `staging` environment values. Once those exist, execute `.github/workflows/staging-deploy.yml`, then move immediately to hosted E2E + OWASP ZAP.
+**Next blocker is external staging infrastructure:** verify the `buildtechsolutions.com` Cloudflare zone, create the dedicated Supabase staging project, and configure the GitHub `staging` environment. Once those exist, execute `.github/workflows/staging-deploy.yml`, then move immediately to hosted E2E + OWASP ZAP.
 
 **Do not merge `foundation/bootstrap` into `main` without explicit user authorization.**
