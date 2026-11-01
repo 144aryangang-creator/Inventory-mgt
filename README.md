@@ -10,9 +10,10 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 - Working branch: `foundation/bootstrap`
 - `main`: foundation work is **not merged**
 - Database CI: **GREEN** — run `40987922831`
-- Application CI: **GREEN** — run `41221818608`
+- Application CI: **GREEN** — run `41356175796`
 - Browser E2E: **GREEN** — run `41355614560`
-- Security CI: **GREEN** — run `41355752128`
+- Security CI: **GREEN** — run `41356392873`
+- Performance CI: **GREEN** — run `41356392913`
 - Database migrations: through `20261030003300_bulk_import_payload_null_hardening.sql`
 - pgTAP suites: `001–023`
 - Production deployment: **not started**
@@ -31,6 +32,8 @@ Configurable multi-tenant inventory + invoicing SaaS. PostgreSQL is the tenant-s
 - no service-role key for normal business routes
 - exact decimal strings across JS boundaries
 - PostgreSQL `numeric` for money/tax/quantity truth
+- authenticated `/v1/*` responses use `Cache-Control: no-store`
+- request IDs + `nosniff` + frame/referrer protections
 
 ### Inventory
 
@@ -165,14 +168,11 @@ Run `41355614560` is **GREEN** and proves through the real browser:
 
 ## Security automation
 
-Security CI was added on 2026-11-02.
-
-Run `41355752128` is **GREEN**:
+Latest Security CI run `41356392873` is **GREEN**:
 
 - `npm audit --audit-level=high`: passed
-- CodeQL JavaScript/TypeScript initialization: passed
+- CodeQL JavaScript/TypeScript: passed
 - production build under CodeQL: passed
-- CodeQL analysis/upload: passed
 
 Repository automation:
 
@@ -184,6 +184,37 @@ Repository automation:
   - weekly npm updates
   - weekly GitHub Actions updates
   - grouped npm minor/patch updates
+
+## Performance + concurrency regression gate
+
+Performance CI run `41356392913` is **GREEN**.
+
+Authenticated read baseline on the local real stack:
+
+- 5 VUs for 20 seconds
+- 1,338 HTTP requests
+- 0 request failures
+- 4,014 / 4,014 checks passed
+- p95: 13.61 ms
+- max: 60.53 ms
+- thresholds: failure rate `<1%`, p95 `<1.5s`
+
+Every protected read also verified:
+
+- HTTP `200`
+- `Cache-Control: no-store`
+- request ID present
+
+Concurrent stock-contention probe:
+
+- seed exactly 1 unit
+- fire 2 outbound transfers concurrently
+- require exactly one `201` + one `409`
+- source ending stock = 0
+- aggregate destination stock = 1
+- no negative stock
+
+These numbers are **regression-test results, not production capacity claims**.
 
 ## Architecture
 
@@ -242,6 +273,8 @@ Repository automation:
 30. Audit viewer is read-only and governed by database RBAC/RLS.
 31. Bulk dry-run is advisory; execution re-validates DB state.
 32. CSV values never become authoritative accounting calculations.
+33. Authenticated `/v1/*` responses are non-cacheable.
+34. Single-unit concurrent stock contention must never produce two successful outbound writers.
 
 ## Database state
 
@@ -288,25 +321,25 @@ Implemented:
 | Gate | Latest verified run | Status |
 |---|---:|---|
 | Database CI | `40987922831` | GREEN |
-| Application CI | `41221818608` | GREEN |
+| Application CI | `41356175796` | GREEN |
 | Browser E2E | `41355614560` | GREEN |
-| Security CI | `41355752128` | GREEN |
+| Security CI | `41356392873` | GREEN |
+| Performance CI | `41356392913` | GREEN |
 
 ## Remaining production-readiness work
 
 High priority:
 
-1. Dynamic security testing / HTTP hardening review.
-2. Load + concurrency testing against representative business operations.
-3. Staging deployment + environment/secret separation.
-4. Automated backups + restore drill.
-5. Monitoring, error tracking and operational alerts.
-6. Privileged-account MFA policy + production security review.
-7. Production deployment/domain/TLS rollout.
-8. Trusted GST registration verification integration.
-9. `.xlsx` import/export only after CSV stability/parser-license review.
-10. Supplier Invoice / Accounts Payable remains a later accounting module linked to Purchase Receipts.
+1. Dedicated staging environment + environment/secret separation.
+2. Real staging OWASP ZAP / HTTP security scan.
+3. Automated backups + restore drill.
+4. Monitoring, error tracking and operational alerts.
+5. Privileged-account MFA policy + production security review.
+6. Production deployment/domain/TLS rollout.
+7. Trusted GST registration verification integration.
+8. `.xlsx` import/export only after CSV stability/parser-license review.
+9. Supplier Invoice / Accounts Payable remains a later accounting module linked to Purchase Receipts.
 
 ## Next engineering task — resume here
 
-**Production hardening. Start with dynamic HTTP/security checks and load/concurrency tests. Then prepare staging deployment. Ask the user for an opinion when a real deployment/policy choice is required (domain, environment plan, backup retention, alert destination, pilot rollout).**
+**Staging deployment. Recommended: a separate Supabase staging project and a separate Cloudflare staging Worker/environment. Ask the user whether to start with a free/near-free Cloudflare `*.workers.dev` staging URL or use a custom staging subdomain now. After staging exists, run real staging E2E + OWASP ZAP before production planning.**
