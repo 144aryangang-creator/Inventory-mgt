@@ -1,0 +1,175 @@
+name: Performance CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'packages/contracts/**'
+      - 'supabase/**'
+      - 'performance/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/performance-ci.yml'
+  push:
+    branches:
+      - main
+      - 'foundation/**'
+    paths:
+      - 'apps/api/**'
+      - 'packages/contracts/**'
+      - 'supabase/**'
+      - 'performance/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/performance-ci.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regression-load:
+    name: Authenticated load + stock contention
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      PERF_EMAIL: perf-user@example.test
+      PERF_PASSWORD: LocalPerf-Password-2026!
+      API_BASE_URL: http://127.0.0.1:8787
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version-file: '.nvmrc'
+          package-manager-cache: false
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@1dedf2c611547ede7232d26866dd3c56ab903bbb
+        with:
+          version: 2.122.0
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
+        with:
+          k6-version: '2.3.0'
+
+      - name: Start minimal local Supabase stack
+        run: supabase start -x realtime,storage-api,imgproxy,mailpit,postgres-meta,studio,edge-runtime,logflare,vector,supavisor
+
+      - name: Configure API environment
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          supabase status -o env > /tmp/supabase.env
+          set -a
+          source /tmp/supabase.env
+          set +a
+
+          PUBLIC_KEY="${PUBLISHABLE_KEY:-${ANON_KEY:-}}"
+          if [ -z "$API_URL" ] || [ -z "$PUBLIC_KEY" ]; then
+            echo "Supabase API URL or public key is missing" >&2
+            exit 1
+          fi
+
+          cat > apps/api/.dev.vars <<EOF
+          APP_ORIGIN=http://127.0.0.1:4173
+          SUPABASE_URL=$API_URL
+          SUPABASE_PUBLISHABLE_KEY=$PUBLIC_KEY
+          EOF
+
+          echo "PERF_SUPABASE_URL=$API_URL" >> "$GITHUB_ENV"
+          echo "PERF_SUPABASE_PUBLIC_KEY=$PUBLIC_KEY" >> "$GITHUB_ENV"
+
+      - name: Create performance user and access token
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST "$PERF_SUPABASE_URL/auth/v1/signup" \
+            --header "apikey: $PERF_SUPABASE_PUBLIC_KEY" \
+            --header "Authorization: Bearer $PERF_SUPABASE_PUBLIC_KEY" \
+            --header "Content-Type: application/json" \
+            --data "{\"email\":\"$PERF_EMAIL\",\"password\":\"$PERF_PASSWORD\"}" \
+            >/tmp/perf-signup.json
+
+          ACCESS_TOKEN=$(jq -r '.access_token // empty' /tmp/perf-signup.json)
+          if [ -z "$ACCESS_TOKEN" ]; then
+            ACCESS_TOKEN=$(curl --fail-with-body --silent --show-error \
+              --request POST "$PERF_SUPABASE_URL/auth/v1/token?grant_type=password" \
+              --header "apikey: $PERF_SUPABASE_PUBLIC_KEY" \
+              --header "Content-Type: application/json" \
+              --data "{\"email\":\"$PERF_EMAIL\",\"password\":\"$PERF_PASSWORD\"}" \
+              | jq -r '.access_token')
+          fi
+
+          test -n "$ACCESS_TOKEN"
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "PERF_ACCESS_TOKEN=$ACCESS_TOKEN" >> "$GITHUB_ENV"
+
+      - name: Start Worker API
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          npm run dev --workspace @inventory/api >/tmp/perf-api.log 2>&1 &
+          echo $! >/tmp/perf-api.pid
+
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent "$API_BASE_URL/health" >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          cat /tmp/perf-api.log
+          exit 1
+
+      - name: Create isolated performance organization
+        shell: bash --noprofile --norc -e -o pipefail {0}
+        run: |
+          SLUG="perf-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          RESPONSE=$(curl --fail-with-body --silent --show-error \
+            --request POST "$API_BASE_URL/v1/organizations" \
+            --header "Authorization: Bearer $PERF_ACCESS_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "{\"name\":\"Performance CI\",\"slug\":\"$SLUG\",\"countryCode\":\"IN\",\"baseCurrency\":\"INR\",\"timezone\":\"Asia/Kolkata\"}")
+
+          ORGANIZATION_ID=$(echo "$RESPONSE" | jq -r '.organizationId // empty')
+          test -n "$ORGANIZATION_ID"
+          echo "PERF_ORGANIZATION_ID=$ORGANIZATION_ID" >> "$GITHUB_ENV"
+
+      - name: Run authenticated read regression load
+        run: |
+          k6 run \
+            -e API_BASE_URL="$API_BASE_URL" \
+            -e ACCESS_TOKEN="$PERF_ACCESS_TOKEN" \
+            -e ORGANIZATION_ID="$PERF_ORGANIZATION_ID" \
+            performance/read-path.js
+
+      - name: Run concurrent stock contention invariant
+        env:
+          ACCESS_TOKEN: ${{ env.PERF_ACCESS_TOKEN }}
+          ORGANIZATION_ID: ${{ env.PERF_ORGANIZATION_ID }}
+        run: node performance/stock-contention.mjs
+
+      - name: Show API logs on failure
+        if: failure()
+        run: cat /tmp/perf-api.log || true
+
+      - name: Stop Worker API
+        if: always()
+        run: |
+          if [ -f /tmp/perf-api.pid ]; then
+            kill "$(cat /tmp/perf-api.pid)" 2>/dev/null || true
+          fi
+
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop --no-backup
